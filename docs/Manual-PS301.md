@@ -157,7 +157,10 @@ ftp> get RESET
 
 Laut TE-310-Handbuch funktionieren die Aktionsdateien auch per TFTP, und zwar ohne Login:
 `tftp <ip> GET RESET` (Neustart) und `tftp <ip> GET DEFAULTC` (Werkseinstellungen).
-Auf diesem Gerät nicht geprüft.
+
+Gemessen auf diesem Gerät (FW 6022): `CONFIG` und `PSINF` lassen sich per TFTP ohne Login
+lesen (identisch mit FTP). `GET PASSRESET` per TFTP lehnt es mit TFTP-Fehler 4
+"Read(Get) Command Not Supportted" ab. `RESET` und `DEFAULTC` per TFTP sind nicht geprüft.
 
 ### Werkseinstellungen, wenn IP oder Passwort unbekannt sind
 
@@ -174,7 +177,12 @@ Weitere Wege: `get DEFAULTC` per FTP, BiAdmin "InitDevice > Restore Factory Defa
 PSCONFIG "Restore Default Configuration". Das TE-310-Handbuch erwähnt einen Reset-Taster;
 Perle dokumentiert für den IOPRINT+ keinen. Ob der PS301 einen hat, ist nicht geprüft.
 
-Standardpasswort: keines. `put PASSWORD` setzt eines, `get PASSRESET` löscht es.
+Standardpasswort: keines. `put PASSWORD` setzt eines, `get PASSRESET` löscht es - per FTP
+auch ganz ohne Login (gemessen, FW 6022). Ein Passwort schützt das Gerät also nicht.
+
+Die Datei `PASSWORD` muss mit einem Zeilenende (CR, LF) oder NUL enden. Ohne Abschluss liest
+das Gerät über die gesendeten Bytes hinaus und speichert ein unbekanntes Passwort; danach
+hilft nur `get PASSRESET` (gemessen).
 
 ### Windows- und DOS-Werkzeuge (historisch)
 
@@ -215,6 +223,45 @@ Anhang B.
   belegen, daher nicht leichtfertig testen.
 - Hinweis aus dem Handbuch: Bei LPD druckt das Gerät die Datendatei sofort und ignoriert
   Optionen aus der Steuerdatei.
+
+## Gemessenes Verhalten (PS301, FW 6022)
+
+Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
+
+- **FTP-Login:** `USER <BOX_NAME>` antwortet `331`, `PASS` mit leerem Passwort `230 User
+  logged in.`; ein falsches Passwort `531 Invalid password.`. `PWD`, `NOOP` und `PASV`
+  antworten `500 Invalid command.`, `HELP` wie `SYST` mit `215 Print Server FW 6022`.
+- **Eine Verbindung zur Zeit:** Direkt nach dem Ende einer FTP-Sitzung lehnt das Gerät neue
+  Verbindungen etwa 0,1 s lang ab (ECONNREFUSED); danach nimmt es wieder an.
+- **Neustart (`get RESET`):** Antwort `150`, 0 Byte Daten, `226`. Endet die Sitzung mit `QUIT`,
+  startet das Gerät erst etwa 5 s später neu und antwortet bis dahin normal; ohne `QUIT` sofort.
+  Ein Neustart dauert etwa 5 s. Erreichbarkeit kann ihn daher nicht sicher anzeigen, die
+  SNMP-Uptime schon.
+- **SNMP:** `sysUpTime` (1.3.6.1.2.1.1.3.0) ist mit der Community `public` lesbar und fällt
+  beim Neustart auf nahezu 0 zurück.
+- **Schreiben + Anwenden:** `put CONFIG`, Rücklesen, `get RESET`, bis das Gerät wieder
+  antwortet: etwa 11 s.
+- **IP-Wechsel:** Eine geänderte `IP_ADDR` gilt nach dem Neustart; das Gerät antwortet dann nur
+  noch unter der neuen Adresse (Hin- und Rückweg gemessen).
+- **Pakete an jede IP:** Das Gerät beantwortet Pakete an jede IP-Adresse, die ein Rechner per
+  ARP auf seine MAC abbildet (beobachtet über einen veralteten ARP-Eintrag nach dem
+  IP-Wechsel). Darauf beruht der ARP-Trick.
+- **LPD-Queue-Status** (`0x03`/`0x04` + Queue) antwortet mit dem Monitor-Block des Anschlusses,
+  eingeleitet von `(LPD Server):`.
+- **Telnet:** Begrüßung `IAC WILL ECHO, IAC DO SGA, IAC WILL SGA`, dann `Welcome to Print
+  Server` und `PS>`. Nach `monitor` folgt kein neuer Prompt; nach `exit` schließt das Gerät die
+  Verbindung (etwa 1 s nach dem Verbindungsaufbau).
+- **Suche im Netz:** Während eines Sweeps mit vielen gleichzeitigen Verbindungsversuchen
+  brauchte der TCP-Connect zu vorhandenen Geräten 1,1 bis 2,2 s.
+
+Ein zweiter PS301 mit **Firmware 6A10** im selben Netz zeigte:
+
+- `SYST` und `HELP` antworten mit Zufallsbytes statt der Versionsnummer; `PSINF` nennt die
+  Version korrekt (`6A10`).
+- CONFIG ohne `WINS_IP`, `DHCP_MODE`, `LPT2MODE` und `LPT3MODE` (siehe `device-dump/fw6a10/`).
+- Nach mehreren Such-Sweeps und lesenden Abfragen nahm er FTP, Telnet und LPD nicht mehr an,
+  bis er aus- und eingeschaltet wurde (Ping ging weiter). Die Ursache ist nicht isoliert;
+  `discover` sendet seitdem außer `QUIT` nichts.
 
 ## Beobachtungen und offene Punkte
 
