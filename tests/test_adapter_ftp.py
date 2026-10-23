@@ -183,6 +183,13 @@ def test_530_without_login_raises_authentication_required() -> None:
     assert not any(line.startswith(("USER", "PASS")) for line in server.commands)
 
 
+def test_the_ps301s_531_invalid_password_is_an_authentication_refusal() -> None:
+    behaviour = FakeFtpBehaviour(replies={"PASS": "531 Invalid password."})
+    with FakeFtpServer(behaviour) as server, pytest.raises(AuthenticationRequiredError, match="531 Invalid password"):
+        _client().store(_endpoint(server.port, login=LOGIN, password=PASSWORD), WritableFile.CONFIG, b"x")
+    assert f"PASS {PASSWORD}" in server.commands
+
+
 def test_wrong_password_never_appears_in_the_error_or_its_traceback() -> None:
     behaviour = FakeFtpBehaviour(credentials=(LOGIN, "other"), echo_password_on_refusal=True)
     with FakeFtpServer(behaviour) as server, pytest.raises(AuthenticationRequiredError) as caught:

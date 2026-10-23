@@ -190,16 +190,24 @@ _CONFIRM_NAME = option(
 
 @click.command("reset", context_settings=CLICK_CONTEXT_SETTINGS)
 @_YES
+@option("--no-wait", "no_wait", is_flag=True, default=False, help="Return at once instead of waiting for the restart.")
 @device_options
 @click.pass_context
 def cli_reset(
-    ctx: click.Context, *, yes: bool, host: str | None, timeout: float | None, as_json: bool, as_json_bare: bool
+    ctx: click.Context,
+    *,
+    yes: bool,
+    no_wait: bool,
+    host: str | None,
+    timeout: float | None,
+    as_json: bool,
+    as_json_bare: bool,
 ) -> None:
-    """Restart the print server; a stored configuration takes effect."""
+    """Restart the print server and wait until it answers again; a stored configuration takes effect."""
 
     def work(server: PrintServer) -> ActionReport:
         _require_yes(yes, what="reset")
-        server.reset()
+        server.reset(wait=not no_wait)
         return ActionReport(host=server.endpoint.host, action="reset", done=True)
 
     run_device_command(

@@ -108,7 +108,7 @@ class FtpClient:
 
         Raises:
             DeviceUnavailableError: The device could not be reached.
-            AuthenticationRequiredError: The device answered 530.
+            AuthenticationRequiredError: The device answered 530 or 531.
             DeviceResponseError: The reply is not a 215 reply.
         """
         with self._session(endpoint, log_in=False) as ftp:
@@ -132,7 +132,7 @@ class FtpClient:
 
         Raises:
             DeviceUnavailableError: The device could not be reached or dropped the connection.
-            AuthenticationRequiredError: The device answered 530.
+            AuthenticationRequiredError: The device answered 530 or 531.
             DeviceResponseError: Any other unexpected reply, or a file larger than
                 ``MAX_FILE_BYTES``.
         """
@@ -154,7 +154,7 @@ class FtpClient:
 
         Raises:
             DeviceUnavailableError: The device could not be reached or dropped the connection.
-            AuthenticationRequiredError: The device answered 530.
+            AuthenticationRequiredError: The device answered 530 or 531.
             DeviceResponseError: Any other unexpected reply.
         """
         with self._session(endpoint, log_in=True) as ftp:
@@ -177,7 +177,7 @@ class FtpClient:
         Raises:
             DeviceUnavailableError: The device could not be reached, timed out, or dropped the
                 connection before the ``RETR`` was sent.
-            AuthenticationRequiredError: The device answered 530.
+            AuthenticationRequiredError: The device answered 530 or 531.
             DeviceResponseError: Any other unexpected reply.
         """
         collector = _Collector(endpoint)
@@ -366,7 +366,7 @@ def _translated_errors(endpoint: DeviceEndpoint) -> Generator[None, None, None]:
         Nothing; the body runs with translation in place.
 
     Raises:
-        AuthenticationRequiredError: For a 530 reply.
+        AuthenticationRequiredError: For a 530 or 531 reply.
         DeviceResponseError: For any other error reply or protocol violation.
         DeviceUnavailableError: For a timeout, a lost connection or any other socket failure.
     """
@@ -393,10 +393,11 @@ def _reply_error(exc: ftplib.Error, endpoint: DeviceEndpoint) -> Exception:
         endpoint: The device, for the message and for redaction.
 
     Returns:
-        ``AuthenticationRequiredError`` for 530, otherwise ``DeviceResponseError``.
+        ``AuthenticationRequiredError`` for 530 (not logged in) and 531 (the PS301's "Invalid
+        password."), otherwise ``DeviceResponseError``.
     """
     reply = str(exc)
-    if reply.startswith("530"):
+    if reply.startswith(("530", "531")):
         return AuthenticationRequiredError(f"{_where(endpoint)} refused the login: {_quote(reply, endpoint)}")
     return DeviceResponseError(f"{_where(endpoint)} answered {_quote(reply, endpoint)}")
 

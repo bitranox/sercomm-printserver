@@ -44,7 +44,7 @@ def device() -> FakeDevice:
 @pytest.fixture
 def services(device: FakeDevice) -> Callable[[], AppServices]:
     def open_print_server(endpoint: DeviceEndpoint, *, raw_port_base: int) -> PrintServer:
-        ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device)
+        ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device, uptime=device)
         return PrintServer(endpoint, ports, raw_port_base=raw_port_base)
 
     return lambda: dataclasses.replace(build_testing(), open_print_server=open_print_server)

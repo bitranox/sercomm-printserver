@@ -157,6 +157,20 @@ class RawPort(Protocol):
         ...
 
 
+class UptimePort(Protocol):
+    """SNMP ``sysUpTime``: the one signal that tells a restart from a short refusal.
+
+    The device keeps answering FTP for about 5 s after a ``RESET`` session that ended with
+    ``QUIT`` and refuses every new connection for about 0.1 s after each session, so
+    reachability cannot tell whether it restarted; its uptime falls back to near zero when it
+    did. Reads only, with the SNMP read community (``public`` by factory default).
+    """
+
+    def uptime(self, endpoint: DeviceEndpoint) -> float:
+        """Return the device's uptime in seconds; DeviceUnavailableError when SNMP is silent."""
+        ...
+
+
 class OpenPrintServer(Protocol):
     """Return a :class:`~.print_server.PrintServer` for ``endpoint`` wired to real adapters."""
 
@@ -196,4 +210,5 @@ __all__ = [
     "RawPort",
     "TelnetPort",
     "TftpPort",
+    "UptimePort",
 ]

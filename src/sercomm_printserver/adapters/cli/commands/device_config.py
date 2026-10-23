@@ -50,6 +50,7 @@ class ChangeReport(BaseModel, frozen=True):
     changes: tuple[ConfigChange, ...]
     written: bool
     applied: bool
+    reachable_at: str | None
 
 
 class ExportReport(BaseModel, frozen=True):
@@ -215,7 +216,11 @@ def _write(server: PrintServer, new: DeviceConfig, *, yes: bool, apply: bool) ->
         raise ConfirmationRequiredError(f"not written, pass --yes to write: {listing or 'no change'}")
     result = server.write_config(new, apply=apply)
     return ChangeReport(
-        host=server.endpoint.host, changes=result.changes, written=result.written, applied=result.applied
+        host=server.endpoint.host,
+        changes=result.changes,
+        written=result.written,
+        applied=result.applied,
+        reachable_at=result.reachable_at,
     )
 
 
@@ -224,6 +229,10 @@ def _render(report: ChangeReport) -> str:
         return f"{report.host}: nothing to change"
     lines = [f"{change.token}: {change.old!r} -> {change.new!r}" for change in report.changes]
     lines.append(f"{report.host}: written{', device restarted' if report.applied else ''}")
+    if report.applied and report.reachable_at is None:
+        lines.append("the device takes its address from DHCP now; find it with: sercomm-printserver discover")
+    elif report.reachable_at != report.host:
+        lines.append(f"the device now answers at {report.reachable_at}")
     return "\n".join(lines)
 
 

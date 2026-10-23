@@ -40,9 +40,27 @@ def _device(*, login_for_writes: str | None = None) -> FakeDevice:
     )
 
 
-def _server(device: FakeDevice, *, endpoint: DeviceEndpoint = _ENDPOINT) -> PrintServer:
-    ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device)
-    return PrintServer(endpoint, ports)
+class _ManualClock:
+    """A clock that moves only when the code under test sleeps."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _server(
+    device: FakeDevice, *, endpoint: DeviceEndpoint = _ENDPOINT, clock: _ManualClock | None = None
+) -> PrintServer:
+    ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device, uptime=device)
+    clock = clock or _ManualClock()
+    return PrintServer(endpoint, ports, sleep=clock.sleep, clock=clock)
 
 
 def test_the_fake_device_satisfies_every_port() -> None:
@@ -143,6 +161,75 @@ def test_a_new_mail_password_is_not_mistaken_for_a_failed_write() -> None:
 
     assert result.written is True
     assert "4102 MAIL_PAS:newsecret\n" in device.config
+
+
+# ---------------------------------------------------------------- waiting for a restart
+
+
+def test_a_reset_waits_until_the_uptime_falls_back() -> None:
+    device = _device()
+    device.restart_after_reads = 3
+    clock = _ManualClock()
+
+    _server(device, clock=clock).reset()
+
+    assert device.actions == [DeviceAction.RESET]
+    assert clock.sleeps == [0.5, 0.5, 0.5]
+    assert device.uptime_seconds < 5
+
+
+def test_without_snmp_a_reset_waits_for_ftp_to_go_away_and_return() -> None:
+    device = _device()
+    device.snmp_enabled = False
+    device.ftp_down_after_reset = 2
+    clock = _ManualClock()
+
+    _server(device, clock=clock).reset()
+
+    assert clock.sleeps == [0.5]
+    assert device.actions == [DeviceAction.RESET]
+
+
+def test_a_device_that_does_not_restart_is_reported_after_the_deadline() -> None:
+    device = _device()
+    device.ignores_reset = True
+    clock = _ManualClock()
+
+    with pytest.raises(DeviceUnavailableError, match="did not restart within 120 s"):
+        _server(device, clock=clock).reset()
+    assert clock.now > 120
+
+
+def test_a_reset_without_wait_returns_at_once() -> None:
+    device = _device()
+    device.ignores_reset = True
+    clock = _ManualClock()
+
+    _server(device, clock=clock).reset(wait=False)
+
+    assert (device.actions, clock.sleeps) == ([DeviceAction.RESET], [])
+
+
+def test_a_write_that_moves_the_device_waits_at_the_new_address() -> None:
+    device = _device()
+    server = _server(device)
+
+    result = server.write_config(with_value(server.read_config(), "IP_ADDR", "192.0.2.99"))
+
+    assert (result.applied, result.reachable_at) == (True, "192.0.2.99")
+    assert device.actions == [DeviceAction.RESET]
+
+
+def test_a_write_that_hands_the_address_to_dhcp_does_not_wait() -> None:
+    device = _device()
+    device.ignores_reset = True
+    clock = _ManualClock()
+    server = _server(device, clock=clock)
+
+    result = server.write_config(with_value(server.read_config(), "DHCP_MODE", "Enable"))
+
+    assert (result.applied, result.reachable_at) == (True, None)
+    assert clock.sleeps == []
 
 
 # ---------------------------------------------------------------- login
@@ -257,7 +344,7 @@ def test_raw_data_goes_to_the_port_of_the_logical_printer(printer: int, port: in
 
 def test_the_raw_port_base_is_configurable() -> None:
     device = _device()
-    ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device)
+    ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device, uptime=device)
 
     PrintServer(_ENDPOINT, ports, raw_port_base=4010).print_raw(1, b"x")
 

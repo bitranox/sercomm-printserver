@@ -17,6 +17,7 @@ from ..adapters.ftp import FtpClient
 from ..adapters.logging.setup import check_logging_config, init_logging
 from ..adapters.lpd import LpdClient
 from ..adapters.raw import RawPrinter
+from ..adapters.snmp import SnmpUptime
 from ..adapters.telnet import TelnetClient
 from ..adapters.tftp import TftpClient
 from ..application.print_server import DevicePorts, PrintServer
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
         RawPort,
         TelnetPort,
         TftpPort,
+        UptimePort,
     )
     from ..domain.endpoint import DeviceEndpoint
 
@@ -54,6 +56,7 @@ if TYPE_CHECKING:
     _assert_tftp: TftpPort = TftpClient()
     _assert_lpd: LpdPort = LpdClient()
     _assert_raw: RawPort = RawPrinter()
+    _assert_uptime: UptimePort = SnmpUptime()
     _assert_scanner: HostScanner = FtpBannerScanner()
 
 
@@ -65,7 +68,14 @@ def open_print_server(endpoint: DeviceEndpoint, *, raw_port_base: int = 9100) ->
         >>> open_print_server(DeviceEndpoint(host="192.0.2.52")).endpoint.host
         '192.0.2.52'
     """
-    ports = DevicePorts(ftp=FtpClient(), telnet=TelnetClient(), tftp=TftpClient(), lpd=LpdClient(), raw=RawPrinter())
+    ports = DevicePorts(
+        ftp=FtpClient(),
+        telnet=TelnetClient(),
+        tftp=TftpClient(),
+        lpd=LpdClient(),
+        raw=RawPrinter(),
+        uptime=SnmpUptime(),
+    )
     return PrintServer(endpoint, ports, raw_port_base=raw_port_base)
 
 
@@ -126,7 +136,7 @@ def build_testing(*, device: FakeDevice | None = None, scanner: FakeScanner | No
     fake = device if device is not None else FakeDevice(config="", psinf="", monitor="")
 
     def open_fake(endpoint: DeviceEndpoint, *, raw_port_base: int = 9100) -> PrintServer:
-        ports = DevicePorts(ftp=fake, telnet=fake, tftp=FakeTftp(fake), lpd=fake, raw=fake)
+        ports = DevicePorts(ftp=fake, telnet=fake, tftp=FakeTftp(fake), lpd=fake, raw=fake, uptime=fake)
         return PrintServer(endpoint, ports, raw_port_base=raw_port_base)
 
     return AppServices(

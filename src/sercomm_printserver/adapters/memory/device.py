@@ -59,12 +59,24 @@ class FakeDevice:
         self.lpd_jobs: list[tuple[str, PrintJob]] = []
         self.raw_sends: list[tuple[int, bytes]] = []
         self.store_rewrites: dict[str, str] = {}
+        self.uptime_seconds = 1000.0
+        self.snmp_enabled = True
+        #: Uptime reads after a RESET before the restart shows (the real device waits ~5 s).
+        self.restart_after_reads = 0
+        #: FTP answers that fail after a RESET, as a restart looks without SNMP.
+        self.ftp_down_after_reset = 0
+        self.ignores_reset = False
+        self._pending_restart: int | None = None
+        self._ftp_down = 0
 
     # FtpPort --------------------------------------------------------------
 
     def system_reply(self, endpoint: DeviceEndpoint) -> str:
-        """Answer ``SYST``."""
+        """Answer ``SYST``; fails while a simulated restart keeps FTP down."""
         self._check_reachable(endpoint)
+        if self._ftp_down > 0:
+            self._ftp_down -= 1
+            raise DeviceUnavailableError(f"{endpoint.host} is restarting")
         return f"215 Print Server FW {self.firmware}"
 
     def retrieve(self, endpoint: DeviceEndpoint, name: ReadableFile) -> bytes:
@@ -75,13 +87,18 @@ class FakeDevice:
         return self.psinf.encode("ascii")
 
     def store(self, endpoint: DeviceEndpoint, name: WritableFile, data: bytes) -> None:
-        """Replace CONFIG or set the password; ``store_rewrites`` can make it store other text."""
+        """Replace CONFIG or set the password; ``store_rewrites`` can make it store other text.
+
+        Like the real device, the password ends at the first CR, LF or NUL; a file without one
+        stores bytes past the upload, which no login will ever match.
+        """
         self._check_writable(endpoint)
         text = data.decode("ascii")
         if name is WritableFile.CONFIG:
             self.config = self.store_rewrites.get(text, text)
-        else:
-            self.credential = text
+            return
+        line = re.split(r"[\r\n\x00]", text, maxsplit=1)
+        self.credential = line[0] if len(line) > 1 else f"{text}<bytes past the upload>"
 
     def trigger(self, endpoint: DeviceEndpoint, action: DeviceAction) -> None:
         """Record the action after the login check FTP applies to it."""
@@ -94,6 +111,24 @@ class FakeDevice:
         self.actions.append(action)
         if action is DeviceAction.CREDENTIAL_RESET:
             self.credential = ""
+        if action is DeviceAction.RESET and not self.ignores_reset:
+            self._pending_restart = self.restart_after_reads
+            self._ftp_down = self.ftp_down_after_reset
+
+    # UptimePort -----------------------------------------------------------
+
+    def uptime(self, endpoint: DeviceEndpoint) -> float:
+        """Return the uptime; every read advances it by one second, a restart sets it back."""
+        self._check_reachable(endpoint)
+        if not self.snmp_enabled:
+            raise DeviceUnavailableError(f"{endpoint.host} does not answer SNMP")
+        if self._pending_restart is not None:
+            if self._pending_restart == 0:
+                self.uptime_seconds, self._pending_restart = 0.0, None
+            else:
+                self._pending_restart -= 1
+        self.uptime_seconds += 1.0
+        return self.uptime_seconds
 
     # TelnetPort -----------------------------------------------------------
 

@@ -207,3 +207,6 @@ EXECUTION-USER-REVIEW.md
 
 # Real values of the local test print server (template: test-device.example.json)
 test-device.json
+
+# End-to-end test snapshots of the real device configuration
+.e2e/

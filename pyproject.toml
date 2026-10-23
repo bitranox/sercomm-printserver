@@ -192,6 +192,8 @@ markers = [
   "os_linux: test exercises Linux-only behavior",
   "local_only: tests that require the local dev environment (external resources, script composition); skipped in CI",
   "integration: tests requiring external resources (network services, databases, APIs); run via 'bmk ti' or 'mktesti.sh'",
+  "device: end-to-end test against the real print server named in test-device.json; runs only with SERCOMM_E2E=1",
+  "printer: end-to-end print test; needs a printer on the device and SERCOMM_E2E_PRINTER=1 as well",
 ]
 
 [tool.coverage.run]

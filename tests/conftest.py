@@ -9,6 +9,7 @@ Centralizes test infrastructure following clean architecture principles:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 from dataclasses import fields, replace
@@ -39,11 +40,29 @@ _PLATFORM_MARKERS: dict[str, Callable[[str], bool]] = {
 }
 
 
+#: The local description of the real test device; end-to-end tests run against nothing else.
+TEST_DEVICE_FILE = Path(__file__).resolve().parents[1] / "test-device.json"
+
+
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    """Skip a test whose ``os_*`` marker names a platform other than the running one."""
+    """Skip a test whose ``os_*`` marker names another platform, or an end-to-end test not enabled."""
     for name, runs_on in _PLATFORM_MARKERS.items():
         if item.get_closest_marker(name) is not None and not runs_on(sys.platform):
             pytest.skip(f"marked {name}; this is {sys.platform}")
+    _skip_unless_e2e_enabled(item)
+
+
+def _skip_unless_e2e_enabled(item: pytest.Item) -> None:
+    # Opt-in twice over: a real device changes state, so neither CI nor a casual local run may
+    # reach one by accident.
+    if item.get_closest_marker("device") is None and item.get_closest_marker("printer") is None:
+        return
+    if os.environ.get("SERCOMM_E2E") != "1":
+        pytest.skip("end-to-end test; set SERCOMM_E2E=1 to run it against the test device")
+    if not TEST_DEVICE_FILE.is_file():
+        pytest.skip(f"end-to-end test; {TEST_DEVICE_FILE.name} describes no test device")
+    if item.get_closest_marker("printer") is not None and os.environ.get("SERCOMM_E2E_PRINTER") != "1":
+        pytest.skip("print test; set SERCOMM_E2E_PRINTER=1 once a printer is attached")
 
 
 def _load_dotenv() -> None:

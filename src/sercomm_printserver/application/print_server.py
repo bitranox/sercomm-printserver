@@ -12,6 +12,7 @@ name, which is the login the vendor manuals prescribe.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeVar
 
@@ -21,7 +22,12 @@ from ..domain import config_catalogue as cat
 from ..domain.config_codec import ConfigChange, diff_config, parse_config, render_config
 from ..domain.device_files import DeviceAction, ReadableFile, WritableFile
 from ..domain.device_info import DeviceInfo, parse_firmware_reply, parse_psinf
-from ..domain.errors import AuthenticationRequiredError, ConfirmationRequiredError, DeviceResponseError
+from ..domain.errors import (
+    AuthenticationRequiredError,
+    ConfirmationRequiredError,
+    DeviceResponseError,
+    DeviceUnavailableError,
+)
 from ..domain.port_status import PortStatus, parse_monitor
 
 if TYPE_CHECKING:
@@ -31,7 +37,7 @@ if TYPE_CHECKING:
 
     from ..domain.config_model import DeviceConfig
     from ..domain.endpoint import DeviceEndpoint, PrintJob
-    from .ports import FtpPort, LpdPort, RawPort, TelnetPort, TftpPort
+    from .ports import FtpPort, LpdPort, RawPort, TelnetPort, TftpPort, UptimePort
 
 _T = TypeVar("_T")
 
@@ -40,6 +46,9 @@ _PASSWORD_MAX: Final = 19
 _RAW_LAST_PORT: Final = 65535
 #: Parameters the device reads back masked with asterisks, so a read-back cannot verify them.
 _READ_BACK_MASKED: Final = frozenset({cat.mail_line(2)})
+#: How long a restart may take before waiting for it is given up.
+_RESTART_TIMEOUT: Final = 120.0
+_POLL_INTERVAL: Final = 0.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +60,7 @@ class DevicePorts:
     tftp: TftpPort
     lpd: LpdPort
     raw: RawPort
+    uptime: UptimePort
 
 
 class ConfigWriteResult(BaseModel, frozen=True, extra="forbid"):
@@ -60,11 +70,14 @@ class ConfigWriteResult(BaseModel, frozen=True, extra="forbid"):
         changes: The parameters that differ from what the device had.
         written: Whether anything was uploaded (False when there was nothing to change).
         applied: Whether the device was restarted so the new configuration takes effect.
+        reachable_at: Where the device answers afterwards: the new address when the write
+            changed it, None when DHCP decides it (then nothing waited for the restart).
     """
 
     changes: tuple[ConfigChange, ...]
     written: bool
     applied: bool
+    reachable_at: str | None
 
 
 class PrintServer:
@@ -75,12 +88,24 @@ class PrintServer:
         ports: The protocol adapters.
         raw_port_base: TCP port of the RAW print port of logical printer ``L1``; ``Ln`` uses
             ``raw_port_base + n - 1``.
+        sleep: Pause between checks while waiting for a restart (injected so tests do not wait).
+        clock: Monotonic clock for that wait's deadline.
     """
 
-    def __init__(self, endpoint: DeviceEndpoint, ports: DevicePorts, *, raw_port_base: int = 9100) -> None:
+    def __init__(
+        self,
+        endpoint: DeviceEndpoint,
+        ports: DevicePorts,
+        *,
+        raw_port_base: int = 9100,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._endpoint = endpoint
         self._ports = ports
         self._raw_port_base = raw_port_base
+        self._sleep = sleep
+        self._clock = clock
 
     @property
     def endpoint(self) -> DeviceEndpoint:
@@ -131,42 +156,69 @@ class PrintServer:
 
         Args:
             new: The complete configuration to store.
-            apply: Restart the device afterwards so the configuration takes effect. A changed
-                IP address is reachable only after that restart.
+            apply: Restart the device afterwards so the configuration takes effect, and wait
+                until it answers again - at its new address when the configuration moves it.
 
         Returns:
-            What changed, and whether it was written and applied.
+            What changed, whether it was written and applied, and where the device answers.
 
         Raises:
             DeviceResponseError: The device stored something other than what was sent.
         """
-        changes = self.plan_config(new)
+        current = self.read_config()
+        changes = diff_config(current, new)
         if not changes:
-            return ConfigWriteResult(changes=(), written=False, applied=False)
+            return ConfigWriteResult(changes=(), written=False, applied=False, reachable_at=self._endpoint.host)
         text = render_config(new)
         self._with_login(lambda endpoint: self._ports.ftp.store(endpoint, WritableFile.CONFIG, text.encode("ascii")))
         stored = [change for change in diff_config(new, self.read_config()) if change.number not in _READ_BACK_MASKED]
         if stored:
             raise DeviceResponseError(f"the device stored a different configuration: {_describe_changes(stored)}")
-        if apply:
-            self.reset()
-        return ConfigWriteResult(changes=changes, written=True, applied=apply)
-
-    def reset(self) -> None:
-        """Restart the device; a stored configuration takes effect."""
+        if not apply:
+            return ConfigWriteResult(changes=changes, written=True, applied=False, reachable_at=self._endpoint.host)
+        target = self._endpoint_after(current, new)
+        before = self._uptime(self._endpoint)
         self._trigger(DeviceAction.RESET)
+        if target is not None:
+            self._wait_for_restart(before, target)
+        return ConfigWriteResult(
+            changes=changes, written=True, applied=True, reachable_at=None if target is None else target.host
+        )
+
+    def reset(self, *, wait: bool = True) -> None:
+        """Restart the device; a stored configuration takes effect.
+
+        The device restarts about 5 s after the triggering session ends and keeps answering
+        until then, so a call right after the trigger would land in the restart. With ``wait``
+        this returns only once the device has restarted (its SNMP uptime fell back) and answers
+        FTP again.
+
+        Raises:
+            DeviceUnavailableError: ``wait`` and the device did not come back in time.
+        """
+        before = self._uptime(self._endpoint)
+        self._trigger(DeviceAction.RESET)
+        if wait:
+            self._wait_for_restart(before, self._endpoint)
 
     def set_password(self, password: SecretStr) -> None:
-        """Set the login password (at most 19 bytes; the device name stays the login)."""
+        """Set the login password (at most 19 bytes; the device name stays the login).
+
+        The device reads the uploaded file up to a line end; without one it stores bytes past
+        the upload and the intended password never matches, so the file ends with CRLF.
+        """
         secret = password.get_secret_value()
         if not secret.isascii() or not secret.isprintable() or len(secret) > _PASSWORD_MAX:
             raise ValueError(f"the password must be at most {_PASSWORD_MAX} printable ASCII characters")
-        self._with_login(
-            lambda endpoint: self._ports.ftp.store(endpoint, WritableFile.LOGIN_CREDENTIAL, secret.encode("ascii"))
-        )
+        content = f"{secret}\r\n".encode("ascii")
+        self._with_login(lambda endpoint: self._ports.ftp.store(endpoint, WritableFile.LOGIN_CREDENTIAL, content))
 
     def clear_password(self, *, confirm_name: str) -> None:
-        """Clear the login password. Needs the device's name as confirmation."""
+        """Clear the login password. Needs the device's name as confirmation.
+
+        The PS301 (firmware 6022) carries this out without any login, so a lost password never
+        locks the device - and a password does not stop anyone on the network from clearing it.
+        """
         self._confirm(confirm_name, action="clearing the password")
         self._trigger(DeviceAction.CREDENTIAL_RESET)
 
@@ -208,6 +260,48 @@ class PrintServer:
     def _read_text(self, name: ReadableFile) -> str:
         data = self._with_login(lambda endpoint: self._ports.ftp.retrieve(endpoint, name))
         return data.decode("ascii", errors="replace")
+
+    def _endpoint_after(self, current: DeviceConfig, new: DeviceConfig) -> DeviceEndpoint | None:
+        """Where the device answers once ``new`` is applied; None when DHCP will choose."""
+        if new.tcp_ip.dhcp:
+            return None
+        if new.tcp_ip.ip_address == current.tcp_ip.ip_address:
+            return self._endpoint
+        return self._endpoint.model_copy(update={"host": str(new.tcp_ip.ip_address)})
+
+    def _uptime(self, endpoint: DeviceEndpoint) -> float | None:
+        try:
+            return self._ports.uptime.uptime(endpoint)
+        except (DeviceUnavailableError, DeviceResponseError):
+            return None
+
+    def _wait_for_restart(self, before: float | None, endpoint: DeviceEndpoint) -> None:
+        deadline = self._clock() + _RESTART_TIMEOUT
+        if before is not None:
+            self._wait_until(
+                deadline, lambda: self._restarted_since(before, endpoint), host=endpoint.host, what="restart"
+            )
+        else:
+            # Without SNMP the restart shows only as FTP going away for a while.
+            self._wait_until(deadline, lambda: not self._answers_ftp(endpoint), host=endpoint.host, what="go down")
+        self._wait_until(deadline, lambda: self._answers_ftp(endpoint), host=endpoint.host, what="answer again")
+
+    def _wait_until(self, deadline: float, condition: Callable[[], bool], *, host: str, what: str) -> None:
+        while not condition():
+            if self._clock() > deadline:
+                raise DeviceUnavailableError(f"{host} did not {what} within {_RESTART_TIMEOUT:g} s")
+            self._sleep(_POLL_INTERVAL)
+
+    def _restarted_since(self, before: float, endpoint: DeviceEndpoint) -> bool:
+        now = self._uptime(endpoint)
+        return now is not None and now < before
+
+    def _answers_ftp(self, endpoint: DeviceEndpoint) -> bool:
+        try:
+            self._ports.ftp.system_reply(endpoint)
+        except (DeviceUnavailableError, DeviceResponseError):
+            return False
+        return True
 
     def _trigger(self, action: DeviceAction) -> None:
         self._with_login(lambda endpoint: self._ports.ftp.trigger(endpoint, action))
