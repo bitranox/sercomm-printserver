@@ -83,6 +83,7 @@ dev = [
   "urllib3>=2.8.0",              # CVE-2025-66471, CVE-2025-66418
   "virtualenv>=21.14.9",         # CVE-2025-22702, CVE-2026-113722
   "certifi>=2026.10.19",         # PYSEC-2026-4320
+  "filelock>=4.2.1; python_version>='3.11'", # CVE-2026-112906, -112914, -112940; no fixed release supports 3.10
 ]
 
 [project.scripts]
@@ -301,4 +302,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-17T16:09:43Z", certifi = "2026-10-20T02:24:17Z", ipscout = false}
+exclude-newer-package = { lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-17T16:09:43Z", certifi = "2026-10-20T02:24:17Z", ipscout = false, filelock = "2026-10-17T16:48:15Z"}
