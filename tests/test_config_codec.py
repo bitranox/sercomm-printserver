@@ -266,3 +266,18 @@ def test_a_logical_printer_the_family_has_no_line_for_cannot_be_rendered(dump_te
 
 def test_a_config_line_renders_with_its_token_padding() -> None:
     assert ConfigLine(number=4002, token="MASK   ", value="255.255.255.0").render() == "4002 MASK   :255.255.255.0"
+
+
+# ---------------------------------------------------------------- firmware 6A10 (a second real PS301)
+
+
+def test_firmware_6a10_without_wins_and_dhcp_lines_round_trips() -> None:
+    text = (_DUMP.parent / "fw6a10" / "CONFIG.txt").read_text(encoding="ascii")
+
+    config = parse_config(text)
+
+    assert (config.tcp_ip.wins_server, config.tcp_ip.dhcp) == (None, None)
+    assert [mode.slot for mode in config.parallel_modes] == [1]
+    assert config.serial is not None
+    assert config.serial.handshake is Handshake.HARDWARE
+    assert render_config(config) == text

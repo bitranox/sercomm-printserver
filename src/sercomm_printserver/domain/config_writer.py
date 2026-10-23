@@ -156,8 +156,10 @@ def _tcp_ip(writer: _Writer, tcp_ip: TcpIp) -> None:
     writer.address(cat.TCP_NETMASK, tcp_ip.netmask)
     writer.integer(cat.TCP_RETRY_INTERVAL, tcp_ip.retry_interval)
     writer.integer(cat.TCP_RETRY_COUNT, tcp_ip.retry_count)
-    writer.address(cat.TCP_WINS_SERVER, tcp_ip.wins_server)
-    writer.switch(cat.TCP_DHCP, value=tcp_ip.dhcp)
+    if tcp_ip.wins_server is not None:
+        writer.address(cat.TCP_WINS_SERVER, tcp_ip.wins_server)
+    if tcp_ip.dhcp is not None:
+        writer.switch(cat.TCP_DHCP, value=tcp_ip.dhcp)
 
 
 def _mail(writer: _Writer, mail: Mail | None) -> None:

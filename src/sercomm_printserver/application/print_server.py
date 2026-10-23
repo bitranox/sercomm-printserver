@@ -90,8 +90,15 @@ class PrintServer:
     # ------------------------------------------------------------------ reading
 
     def firmware_version(self) -> str:
-        """Return the firmware version from ``SYST``; needs no login."""
-        return parse_firmware_reply(self._ports.ftp.system_reply(self._endpoint))
+        """Return the firmware version: from ``SYST``, or from ``PSINF`` when SYST garbles it.
+
+        Firmware 6A10 answers ``SYST`` with random bytes where the version belongs; its
+        ``PSINF`` report carries the version correctly.
+        """
+        try:
+            return parse_firmware_reply(self._ports.ftp.system_reply(self._endpoint))
+        except DeviceResponseError:
+            return self.info().firmware_version
 
     def info(self) -> DeviceInfo:
         """Return the device's self-description (``PSINF``)."""

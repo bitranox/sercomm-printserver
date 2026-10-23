@@ -137,7 +137,7 @@ def build_testing(*, device: FakeDevice | None = None, scanner: FakeScanner | No
         init_logging=init_logging_in_memory,
         check_logging_config=check_logging_config_in_memory,
         open_print_server=open_fake,
-        host_scanner=scanner if scanner is not None else FakeScanner(hits={}),
+        host_scanner=scanner if scanner is not None else FakeScanner(hits=()),
     )
 
 

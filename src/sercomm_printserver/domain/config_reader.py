@@ -250,8 +250,8 @@ def _tcp_ip(reader: _Reader) -> TcpIp:
         netmask=reader.address(cat.TCP_NETMASK),
         retry_interval=reader.integer(cat.TCP_RETRY_INTERVAL),
         retry_count=reader.integer(cat.TCP_RETRY_COUNT),
-        wins_server=reader.address(cat.TCP_WINS_SERVER),
-        dhcp=reader.switch(cat.TCP_DHCP),
+        wins_server=reader.address(cat.TCP_WINS_SERVER) if reader.has(cat.TCP_WINS_SERVER) else None,
+        dhcp=reader.switch(cat.TCP_DHCP) if reader.has(cat.TCP_DHCP) else None,
     )
 
 

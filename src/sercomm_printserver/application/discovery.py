@@ -1,10 +1,11 @@
 """Find SerComm print servers on a network by their FTP greeting.
 
-Every member of the family greets an FTP client with ``220 Print Server Ready.`` and answers
-``SYST`` with its firmware version, without a login. Asking port 21 is therefore a probe that
-finds every OEM variant whatever its MAC vendor prefix, and that never touches a print port
-(a bare connect to a RAW port occupies it for minutes). The MAC address comes from this host's
-neighbour cache afterwards, which the probe's own connection has just filled.
+Every member of the family greets an FTP client with ``220 Print Server Ready.``. Reading that
+greeting is therefore a probe that finds every OEM variant whatever its MAC vendor prefix, and
+that never touches a print port (a bare connect to a RAW port occupies it for minutes). The probe
+asks nothing else: the sweep reaches production devices too, so details such as the firmware
+are left to a targeted ``device-info``. The MAC address comes from this host's neighbour cache
+afterwards, which the probe's own connection has just filled.
 """
 
 from __future__ import annotations
@@ -13,9 +14,6 @@ from ipaddress import IPv4Address, IPv4Network
 from typing import TYPE_CHECKING, Final
 
 from pydantic import BaseModel
-
-from ..domain.device_info import parse_firmware_reply
-from ..domain.errors import DeviceResponseError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -29,18 +27,16 @@ MAX_HOSTS: Final = 4096
 
 
 class ProbeHit(BaseModel, frozen=True, extra="forbid"):
-    """One host that answered on port 21: its greeting and its reply to ``SYST``."""
+    """One host that answered on port 21, with its greeting."""
 
     host: IPv4Address
     greeting: str
-    system_reply: str
 
 
 class DiscoveredDevice(BaseModel, frozen=True, extra="forbid"):
     """A print server of the family found on the network."""
 
     host: IPv4Address
-    firmware: str | None
     mac_address: str | None
 
 
@@ -84,16 +80,7 @@ def discover(scanner: HostScanner, *, networks: Sequence[IPv4Network] | None, ti
 
 
 def _device(hit: ProbeHit, scanner: HostScanner) -> DiscoveredDevice:
-    return DiscoveredDevice(
-        host=hit.host, firmware=_firmware(hit.system_reply), mac_address=scanner.mac_address(str(hit.host))
-    )
-
-
-def _firmware(system_reply: str) -> str | None:
-    try:
-        return parse_firmware_reply(system_reply)
-    except DeviceResponseError:
-        return None
+    return DiscoveredDevice(host=hit.host, mac_address=scanner.mac_address(str(hit.host)))
 
 
 __all__ = ["MAX_HOSTS", "PRINT_SERVER_GREETING", "DiscoveredDevice", "DiscoveryReport", "ProbeHit", "discover"]

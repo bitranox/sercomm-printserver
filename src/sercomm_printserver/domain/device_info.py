@@ -20,7 +20,10 @@ from .errors import DeviceResponseError
 #: first three are SerComm's vendor prefix.
 _DEFAULT_NAME: Final = re.compile(r"SC([0-9A-F]{6})", re.IGNORECASE)
 _SERCOMM_OUI: Final = "00:c0:02"
-_SYST_REPLY: Final = re.compile(r"215 Print Server FW (?P<version>\S+)")
+_SYST_REPLY: Final = re.compile(r"215 Print Server FW (?P<version>.*)")
+#: What a firmware version looks like: 6022, 6A10. Firmware 6A10 answers SYST with random
+#: bytes in place of its version, so anything else is no version at all.
+_VERSION: Final = re.compile(r"[0-9A-Za-z.]{1,16}")
 
 
 class InfoEntry(BaseModel, frozen=True, extra="forbid"):
@@ -80,7 +83,8 @@ def parse_firmware_reply(reply: str) -> str:
     """Return the firmware version from the FTP ``SYST`` reply.
 
     Raises:
-        DeviceResponseError: The reply is not the print server's ``215`` answer.
+        DeviceResponseError: The reply is not the print server's ``215`` answer, or it carries
+            no readable version.
 
     Example:
         >>> parse_firmware_reply("215 Print Server FW 6022")
@@ -89,6 +93,8 @@ def parse_firmware_reply(reply: str) -> str:
     match = _SYST_REPLY.fullmatch(reply.strip())
     if match is None:
         raise DeviceResponseError(f"unexpected SYST reply {reply.strip()[:60]!r}")
+    if _VERSION.fullmatch(match["version"]) is None:
+        raise DeviceResponseError(f"SYST reply carries no readable firmware version: {match['version']!r}")
     return match["version"]
 
 

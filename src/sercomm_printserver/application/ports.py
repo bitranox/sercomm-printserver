@@ -171,10 +171,9 @@ class HostScanner(Protocol):
         ...
 
     def probe_ftp(self, hosts: Sequence[str], *, timeout: float) -> tuple[ProbeHit, ...]:
-        """Connect to port 21 of every host; return those that greeted, with their SYST reply.
+        """Connect to port 21 of every host; return those that greeted, with the greeting.
 
-        Hosts that refuse, time out or are absent are left out; it never logs in and never
-        sends anything but ``SYST`` and ``QUIT``.
+        Hosts that refuse, time out or are absent are left out; it sends nothing but ``QUIT``.
         """
         ...
 

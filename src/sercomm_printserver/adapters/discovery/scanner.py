@@ -1,9 +1,11 @@
 """Probe hosts' FTP port concurrently; find MAC addresses and local networks with ipscout.
 
-A probe connects, reads the greeting, and only when it is the print server family's greeting
-asks ``SYST`` for the firmware; any other FTP server gets nothing but ``QUIT``. It never logs in
-and never touches a print port. ipscout reads the neighbour cache passively (no privileges), and
-the probe's own connection is what put the device there.
+A probe connects, reads the greeting and says ``QUIT`` - nothing else, to any host. A sweep
+reaches every device on the network, production print servers included, so it asks the least
+it can: firmware 6A10 answers ``SYST`` with random memory instead of its version, and one such
+device stopped serving FTP, Telnet and LPD until power-cycled after a session of repeated probes
+(cause not isolated). It never logs in and never touches a print port. ipscout reads the
+neighbour cache passively (no privileges), and the probe's own connection put the device there.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from typing import TYPE_CHECKING, Final
 
 import ipscout
 
-from ...application.discovery import PRINT_SERVER_GREETING, ProbeHit
+from ...application.discovery import ProbeHit
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -71,14 +73,10 @@ def _converse(connection: socket.socket, host: str) -> ProbeHit | None:
         greeting = _read_line(connection)
         if not greeting.startswith("220"):
             return None
-        reply = ""
-        if greeting.startswith(PRINT_SERVER_GREETING):
-            connection.sendall(b"SYST\r\n")
-            reply = _read_line(connection)
         connection.sendall(b"QUIT\r\n")
     except OSError:
         return None
-    return ProbeHit(host=IPv4Address(host), greeting=greeting, system_reply=reply)
+    return ProbeHit(host=IPv4Address(host), greeting=greeting)
 
 
 def _read_line(connection: socket.socket) -> str:

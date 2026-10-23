@@ -27,40 +27,32 @@ _NET = IPv4Network("192.0.2.0/29")
 
 
 def test_the_fake_scanner_satisfies_the_port() -> None:
-    scanner: HostScanner = FakeScanner(hits={})
+    scanner: HostScanner = FakeScanner(hits=())
     assert scanner.local_networks()
 
 
 # ---------------------------------------------------------------- use case
 
 
-def test_print_servers_are_found_with_firmware_and_mac_and_other_ftp_servers_are_not() -> None:
+def test_print_servers_are_found_with_their_mac_and_other_ftp_servers_are_not() -> None:
     scanner = FakeScanner(
-        hits={"192.0.2.3": "215 Print Server FW 6022", "192.0.2.2": "215 Print Server FW 6034"},
+        hits=("192.0.2.3", "192.0.2.2"),
         others={"192.0.2.4": "220 ProFTPD Server ready."},
         macs={"192.0.2.3": "00:c0:02:12:34:56"},
     )
 
     report = discover(scanner, networks=[_NET], timeout=1.0)
 
-    assert [(str(d.host), d.firmware, d.mac_address) for d in report.devices] == [
-        ("192.0.2.2", "6034", None),
-        ("192.0.2.3", "6022", "00:c0:02:12:34:56"),
+    assert [(str(d.host), d.mac_address) for d in report.devices] == [
+        ("192.0.2.2", None),
+        ("192.0.2.3", "00:c0:02:12:34:56"),
     ]
     assert report.probed == 6
     assert scanner.probed == [str(host) for host in _NET.hosts()]
 
 
-def test_an_unreadable_syst_reply_still_reports_the_device_without_firmware() -> None:
-    scanner = FakeScanner(hits={"192.0.2.3": "500 Invalid command."})
-
-    report = discover(scanner, networks=[_NET], timeout=1.0)
-
-    assert [(str(d.host), d.firmware) for d in report.devices] == [("192.0.2.3", None)]
-
-
 def test_without_networks_the_local_ones_are_searched_and_oversized_ones_skipped() -> None:
-    scanner = FakeScanner(hits={}, networks=(_NET, IPv4Network("172.17.0.0/16")))
+    scanner = FakeScanner(hits=(), networks=(_NET, IPv4Network("172.17.0.0/16")))
 
     report = discover(scanner, networks=None, timeout=1.0)
 
@@ -69,7 +61,7 @@ def test_without_networks_the_local_ones_are_searched_and_oversized_ones_skipped
 
 
 def test_a_named_network_that_is_too_large_is_refused_before_any_probe() -> None:
-    scanner = FakeScanner(hits={})
+    scanner = FakeScanner(hits=())
 
     with pytest.raises(ValueError, match=f"more than {MAX_HOSTS}"):
         discover(scanner, networks=[IPv4Network("10.0.0.0/16")], timeout=1.0)
@@ -118,23 +110,13 @@ def closed_port() -> Iterator[int]:
     yield port
 
 
-def test_the_scanner_asks_a_print_server_for_its_firmware_and_says_goodbye() -> None:
-    with _GreetingServer(b"220 Print Server Ready.\r\n") as server:
+@pytest.mark.parametrize("greeting", [b"220 Print Server Ready.\r\n", b"220 ProFTPD Server ready.\r\n"])
+def test_the_scanner_reads_the_greeting_and_sends_nothing_but_quit(greeting: bytes) -> None:
+    with _GreetingServer(greeting) as server:
         hits = FtpBannerScanner(ftp_port=server.port).probe_ftp(["127.0.0.1"], timeout=5.0)
         server.done.wait()
 
-    assert [(hit.host, hit.greeting, hit.system_reply) for hit in hits] == [
-        (IPv4Address("127.0.0.1"), "220 Print Server Ready.", "215 Print Server FW 6022")
-    ]
-    assert server.received == b"SYST\r\nQUIT\r\n"
-
-
-def test_the_scanner_sends_another_ftp_server_nothing_but_quit() -> None:
-    with _GreetingServer(b"220 ProFTPD Server ready.\r\n") as server:
-        hits = FtpBannerScanner(ftp_port=server.port).probe_ftp(["127.0.0.1"], timeout=5.0)
-        server.done.wait()
-
-    assert [hit.system_reply for hit in hits] == [""]
+    assert [(hit.host, hit.greeting) for hit in hits] == [(IPv4Address("127.0.0.1"), greeting.decode().strip())]
     assert server.received == b"QUIT\r\n"
 
 
@@ -150,7 +132,7 @@ def test_no_hosts_means_no_probe() -> None:
 
 
 def test_discover_answers_as_an_envelope(cli_runner: CliRunner) -> None:
-    scanner = FakeScanner(hits={"192.0.2.3": "215 Print Server FW 6022"}, macs={"192.0.2.3": "00:c0:02:12:34:56"})
+    scanner = FakeScanner(hits=("192.0.2.3",), macs={"192.0.2.3": "00:c0:02:12:34:56"})
 
     result = cli_runner.invoke(
         cli_root.cli,
@@ -160,9 +142,7 @@ def test_discover_answers_as_an_envelope(cli_runner: CliRunner) -> None:
 
     document = json.loads(result.output)
     assert result.exit_code == 0
-    assert document["data"]["devices"] == [
-        {"host": "192.0.2.3", "firmware": "6022", "mac_address": "00:c0:02:12:34:56"}
-    ]
+    assert document["data"]["devices"] == [{"host": "192.0.2.3", "mac_address": "00:c0:02:12:34:56"}]
 
 
 def test_discover_with_a_malformed_network_exits_22(cli_runner: CliRunner) -> None:

@@ -16,6 +16,10 @@ from ..envelope import Envelope, OutputMode, report_failure, write_envelope
 from ..typed_click import option
 from ._device import exit_code_for
 
+#: While a sweep has dozens of connects in flight, a present host's TCP connect can take over
+#: 2 s; with 1 s per host a /24 sweep missed devices that 3 s finds.
+_DEFAULT_TIMEOUT = 3.0
+
 
 @click.command("discover", context_settings=CLICK_CONTEXT_SETTINGS)
 @option(
@@ -28,9 +32,9 @@ from ._device import exit_code_for
 @option(
     "--timeout",
     type=click.FloatRange(min=0.1, max=60),
-    default=1.0,
+    default=_DEFAULT_TIMEOUT,
     show_default=True,
-    help="Seconds to wait for each host's answer.",
+    help="Seconds to wait for each host's greeting. Under a sweep a present host can need 2 s.",
 )
 @option("--json", "as_json", is_flag=True, default=False, help="Answer as an indented JSON envelope.")
 @option("--json-bare", "as_json_bare", is_flag=True, default=False, help="Answer as one-line JSON.")
@@ -59,10 +63,7 @@ def cli_discover(
 def _render(report: DiscoveryReport) -> str:
     searched = ", ".join(str(network) for network in report.networks) or "nothing"
     lines = [f"Searched {searched} ({report.probed} addresses): {len(report.devices)} print server(s)"]
-    lines += [
-        f"{device.host!s:<16} firmware {device.firmware or '?':<6} MAC {device.mac_address or 'unknown'}"
-        for device in report.devices
-    ]
+    lines += [f"{device.host!s:<16} MAC {device.mac_address or 'unknown'}" for device in report.devices]
     return "\n".join(lines)
 
 

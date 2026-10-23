@@ -15,7 +15,7 @@ class FakeScanner:
     """Answers probes from a fixed table.
 
     Args:
-        hits: Host address to its SYST reply, for hosts that greet as print servers.
+        hits: Host addresses that greet as print servers.
         others: Host address to its greeting, for FTP servers that are not print servers.
         macs: Host address to MAC address, as the neighbour cache would know it.
         networks: What :meth:`local_networks` reports.
@@ -24,12 +24,12 @@ class FakeScanner:
     def __init__(
         self,
         *,
-        hits: Mapping[str, str],
+        hits: Sequence[str],
         others: Mapping[str, str] | None = None,
         macs: Mapping[str, str] | None = None,
         networks: tuple[IPv4Network, ...] = (IPv4Network("192.0.2.0/24"),),
     ) -> None:
-        self._hits = dict(hits)
+        self._hits = set(hits)
         self._others = dict(others or {})
         self._macs = dict(macs or {})
         self._networks = networks
@@ -44,14 +44,12 @@ class FakeScanner:
         del timeout  # an in-memory probe does not wait
         self.probed.extend(hosts)
         found = [
-            ProbeHit(host=IPv4Address(host), greeting=f"{PRINT_SERVER_GREETING}.", system_reply=self._hits[host])
+            ProbeHit(host=IPv4Address(host), greeting=f"{PRINT_SERVER_GREETING}.")
             for host in hosts
             if host in self._hits
         ]
         found += [
-            ProbeHit(host=IPv4Address(host), greeting=self._others[host], system_reply="215 UNIX Type: L8")
-            for host in hosts
-            if host in self._others
+            ProbeHit(host=IPv4Address(host), greeting=self._others[host]) for host in hosts if host in self._others
         ]
         return tuple(found)
 

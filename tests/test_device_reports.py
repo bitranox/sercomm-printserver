@@ -76,6 +76,18 @@ def test_the_firmware_version_comes_from_the_syst_reply() -> None:
     assert parse_firmware_reply("215 Print Server FW 6022\r\n") == "6022"
 
 
+@pytest.mark.parametrize(
+    "garbled", ["215 Print Server FW \u00c4^\u00f0&", "215 Print Server FW ", "215 Print Server FW 6022 extra"]
+)
+def test_a_syst_reply_without_a_readable_version_is_refused(garbled: str) -> None:
+    with pytest.raises(DeviceResponseError, match="SYST reply"):
+        parse_firmware_reply(garbled)
+
+
+def test_a_letter_in_the_version_is_a_version() -> None:
+    assert parse_firmware_reply("215 Print Server FW 6A10") == "6A10"
+
+
 def test_a_syst_reply_from_another_server_is_refused() -> None:
     with pytest.raises(DeviceResponseError, match="unexpected SYST reply"):
         parse_firmware_reply("215 UNIX Type: L8")

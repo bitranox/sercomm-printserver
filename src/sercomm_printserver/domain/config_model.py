@@ -120,15 +120,15 @@ class AppleTalk(_Frozen, frozen=True):
 
 
 class TcpIp(_Frozen, frozen=True):
-    """TCP/IP settings (lines 4000-4020)."""
+    """TCP/IP settings (lines 4000-4020); firmware 6A10 has no WINS server and no DHCP switch."""
 
     ip_address: IPv4Address
     gateway: IPv4Address
     netmask: IPv4Address
     retry_interval: Byte
     retry_count: Byte
-    wins_server: IPv4Address
-    dhcp: bool
+    wins_server: IPv4Address | None = None
+    dhcp: bool | None = None
 
 
 class Mail(_Frozen, frozen=True):

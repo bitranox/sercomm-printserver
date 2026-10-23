@@ -67,6 +67,13 @@ def test_reading_returns_typed_reports() -> None:
     assert server.read_config().tcp_ip.ip_address == IPv4Address("192.0.2.52")
 
 
+def test_a_garbled_syst_version_falls_back_to_the_psinf_report() -> None:
+    device = _device()
+    device.firmware = "\u00c4^\u00f0&"
+
+    assert _server(device).firmware_version() == "6022"
+
+
 def test_the_config_text_comes_back_exactly_as_the_device_sent_it() -> None:
     device = _device()
 
