@@ -117,3 +117,24 @@ def test_the_entry_is_removed_even_when_the_work_fails() -> None:
     with pytest.raises(RuntimeError), borrowed_address(table, ip="192.0.2.77", mac=_MAC):
         raise RuntimeError("device vanished")
     assert table.entries == {}
+
+
+@pytest.mark.parametrize("spelling", ["00-C0-02-12-34-56", "00c002123456", "00c0.0212.3456", " 00:C0:02:12:34:56 "])
+def test_every_common_mac_spelling_reaches_the_same_device(spelling: str) -> None:
+    table = FakeNeighborTable()
+
+    result = reach(table, _opener(_device()), endpoint=_BORROWED, mac=spelling)
+
+    assert result.mac_address == _MAC
+    assert table.history == [("set", "192.0.2.77"), ("remove", "192.0.2.77")]
+
+
+@pytest.mark.parametrize(
+    "bad", ["00:c0:02:12:34", "00:c0:02:12:34:5g", "00:c0-02:12:34:56", "00:c0:02:12:34:5" + chr(0x0666)]
+)
+def test_a_malformed_mac_is_refused_before_any_entry_is_written(bad: str) -> None:
+    table = FakeNeighborTable()
+
+    with pytest.raises(ValueError, match="is not a MAC address"):
+        reach(table, _opener(_device()), endpoint=_BORROWED, mac=bad)
+    assert table.history == []

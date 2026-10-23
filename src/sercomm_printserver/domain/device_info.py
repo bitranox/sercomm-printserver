@@ -20,6 +20,11 @@ from .errors import DeviceResponseError
 #: first three are SerComm's vendor prefix.
 _DEFAULT_NAME: Final = re.compile(r"SC([0-9A-F]{6})", re.IGNORECASE)
 _SERCOMM_OUI: Final = "00:c0:02"
+#: A MAC in the spellings people copy from labels and tools: separated by colons, dashes or
+#: nothing, or in Cisco dot groups. ASCII hex only - ``re.ASCII`` keeps non-ASCII digits out.
+_MAC: Final = re.compile(
+    r"[0-9a-f]{2}([:-]?)(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}", re.ASCII | re.IGNORECASE
+)
 _SYST_REPLY: Final = re.compile(r"215 Print Server FW (?P<version>.*)")
 #: What a firmware version looks like: 6022, 6A10. Firmware 6A10 answers SYST with random
 #: bytes in place of its version, so anything else is no version at all.
@@ -77,6 +82,23 @@ def mac_from_default_name(default_name: str) -> str | None:
         return None
     tail = match[1].lower()
     return ":".join([_SERCOMM_OUI, tail[0:2], tail[2:4], tail[4:6]])
+
+
+def normalise_mac(mac: str) -> str:
+    """Return ``mac`` as lowercase colon-separated hex, the form PSINF and the default name give.
+
+    Raises:
+        ValueError: ``mac`` is not a 48-bit hardware address in a common spelling.
+
+    Example:
+        >>> normalise_mac("00-C0-02-12-34-56"), normalise_mac("00c0.0212.3456")
+        ('00:c0:02:12:34:56', '00:c0:02:12:34:56')
+    """
+    text = mac.strip()
+    if _MAC.fullmatch(text) is None:
+        raise ValueError(f"{mac!r} is not a MAC address")
+    digits = re.sub(r"[:.-]", "", text).lower()
+    return ":".join(digits[index : index + 2] for index in range(0, 12, 2))
 
 
 def parse_firmware_reply(reply: str) -> str:
@@ -174,6 +196,7 @@ __all__ = [
     "InfoEntry",
     "InfoSection",
     "mac_from_default_name",
+    "normalise_mac",
     "parse_firmware_reply",
     "parse_psinf",
 ]

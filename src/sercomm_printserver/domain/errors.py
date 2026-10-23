@@ -69,6 +69,27 @@ class ConfirmationRequiredError(PermissionError):
     """
 
 
+class HostPrivilegeError(PermissionError):
+    """This host refused to change its own network state, such as a static ARP entry.
+
+    Raised by the ARP trick: writing the neighbour table needs root or ``CAP_NET_ADMIN`` on
+    Linux, root on macOS and Administrator on Windows. The message names the remedy.
+
+    Example:
+        >>> isinstance(HostPrivilegeError("needs root or CAP_NET_ADMIN"), PermissionError)
+        True
+    """
+
+
+class NeighborTableError(OSError):
+    """This host could not write or remove a static ARP entry for a reason other than privilege.
+
+    Example:
+        >>> str(NeighborTableError("the kernel refused to add the neighbour entry"))
+        'the kernel refused to add the neighbour entry'
+    """
+
+
 __all__ = [
     "AuthenticationRequiredError",
     "ConfigFormatError",
@@ -76,4 +97,6 @@ __all__ = [
     "ConfirmationRequiredError",
     "DeviceResponseError",
     "DeviceUnavailableError",
+    "HostPrivilegeError",
+    "NeighborTableError",
 ]

@@ -1,302 +1,248 @@
-# Module Reference: Architecture & File Index
+# Module Reference: sercomm-printserver
 
 ## Status
 
-Describes the modules as they are in the source tree. Update it with every change that adds,
-moves or removes a module, a CLI option or a public name.
+v0.1.0. Describes the modules as they are in the source tree; update it with every change that
+adds a module, a CLI command or a public name.
 
----
+## Links & References
 
-## Related Files
+**Repository:** https://github.com/bitranox/sercomm-printserver
+**Documentation:** README.md, INSTALL.md, CONFIG.md, DEVELOPMENT.md, CONTRIBUTING.md, CHANGELOG.md
+**Device notes:** docs/Manual-PS301.md, docs/config-keys.md, docs/adr/0001-memory-adapters-in-src.md
+**Public API:** src/sercomm_printserver/__init__.py (`__all__`; every name resolving is checked by tests/test_public_api.py)
 
-### Domain Layer
-- `src/sercomm_printserver/domain/enums.py`  -  Type-safe enums (OutputFormat, DeployTarget)
-- `src/sercomm_printserver/domain/errors.py`  -  Domain exceptions (ConfigurationError)
+## Problem Statement
 
-### Application Layer
-- `src/sercomm_printserver/application/ports.py`  -  Callable Protocol definitions for adapter functions
+SerComm-based network print servers (PS301 and OEM variants) are configured through a handful of
+virtual files over FTP and TFTP, report port state on a Telnet console, and print over LPD or RAW
+sockets. Each protocol has firmware quirks, the CONFIG file is a numbered line format, and a
+device with an unknown address can only be reached by mapping a borrowed IP to its MAC.
 
-### Adapters Layer
-- `src/sercomm_printserver/adapters/config/loader.py`  -  Configuration loading with LRU caching
-- `src/sercomm_printserver/adapters/config/deploy.py`  -  Configuration deployment
-- `src/sercomm_printserver/adapters/config/display.py`  -  Configuration display (TOML/JSON output, redaction)
-- `src/sercomm_printserver/adapters/config/overrides.py`  -  CLI `--set` override parsing and deep-merge
-- `src/sercomm_printserver/adapters/logging/setup.py`  -  lib_log_rich initialization; takes only the `LOG_*` lines of a `.env`, and raises `InvalidLoggingConfigError` for a refused `[lib_log_rich]` value or `LOG_*` variable, after starting logging with its defaults (and without the `LOG_*` variables only when one of them is refused); `check_logging_config` refuses another configuration's logging settings through lib_log_rich's `validate_config`, without touching the running runtime
-- `src/sercomm_printserver/adapters/cli/`  -  CLI adapter package:
-  - `__init__.py`  -  Public facade
-  - `constants.py`  -  Shared constants
-  - `safe_console.py`  -  Encode-safe terminal output; use `safe_console.echo` instead of `click.echo`
-  - `exit_codes.py`  -  POSIX exit codes (ExitCode IntEnum)
-  - `context.py`  -  Click context helpers (`CLIContext`) and the traceback preference state
-  - `config_load.py`  -  Configuration load for the CLI; records a load failure, `require_config` refuses with exit 78, `check_logging` checks the logging settings of a configuration reloaded by `config --profile`, refusing them as the root does
-  - `root.py`  -  Root command group
-  - `main.py`  -  Entry point
-  - `typed_click.py`  -  Strictly typed wrappers for rich_click's `option`, `version_option` and `get_current_context`
-  - `commands/info.py`  -  info command
-  - `commands/config.py`  -  config, config-deploy, config-generate-examples commands
+## Solution Overview
 
-### Adapters Layer (In-Memory / Testing)
-- `src/sercomm_printserver/adapters/memory/__init__.py`  -  Public facade + Protocol conformance assertions
-- `src/sercomm_printserver/adapters/memory/config.py`  -  In-memory config adapters
-- `src/sercomm_printserver/adapters/memory/logging.py`  -  In-memory logging (a quiet lib_log_rich runtime for tests)
+1. **Typed CONFIG** - `render_config(parse_config(text)) == text` for a device-produced file;
+   every write shows the diff first.
+2. **One use-case object** - `PrintServer` reads, configures, restarts, guards destructive
+   actions and prints, over injected protocol ports.
+3. **Discovery** - finds devices by their FTP greeting `220 Print Server Ready.`.
+4. **ARP trick** - reaches a device by MAC through a static neighbour entry held for one call.
+5. **CLI** - every device command answers for a person or as a JSON envelope, with exit codes
+   that do not depend on the output format.
 
-### Composition Layer
-- `src/sercomm_printserver/composition/__init__.py`  -  Wires adapters to ports
+## Architecture Integration
 
-### Entry Points
-- `src/sercomm_printserver/entry.py`  -  Console-script entry point; wires production services before invoking the CLI
-- `src/sercomm_printserver/__main__.py`  -  Thin shim for `python -m`
-- `src/sercomm_printserver/__init__.py`  -  Public API exports
-- `src/sercomm_printserver/__init__conf__.py`  -  Package metadata constants
+```
+composition/   wires adapters to ports (build_production, build_testing)
+    | imports
+adapters/      ftp, telnet, tftp, lpd, raw, snmp, discovery, neighbors, config, logging, cli, memory
+    | imports
+application/   PrintServer, discovery, arp_trick, ports (Protocols)
+    | imports
+domain/        pure models and parsers: no I/O, logging or frameworks
+```
 
-### Configuration Defaults
-- `src/sercomm_printserver/adapters/config/defaultconfig.toml`  -  Base defaults
-- `src/sercomm_printserver/adapters/config/defaultconfig.d/40-layered-config.toml`  -  lib_layered_config integration docs
-- `src/sercomm_printserver/adapters/config/defaultconfig.d/50-device.toml`  -  Device defaults (`[device]`: host, login, password, timeout, raw_port_base)
-- `src/sercomm_printserver/adapters/config/defaultconfig.d/90-logging.toml`  -  Logging defaults
+**Import contracts** (`tool.importlinter`, run by `lint-imports`):
+"Domain is pure (no adapter dependencies)" forbids `domain` from importing `adapters` or
+`composition`; "Clean Architecture layers" enforces composition -> adapters -> application ->
+domain.
 
-### Tests
-- `tests/conftest.py`  -  Shared fixtures (see Test Fixtures below)
-- `tests/test_cache_effectiveness.py`  -  Configuration loading returns consistent (cached) results
-- `tests/test_cli_config.py`  -  `config`, `config-deploy`, `config-generate-examples` commands
-- `tests/test_cli_config_errors.py`  -  A configuration that cannot be loaded: who reports it, and who still runs
-- `tests/test_cli_core.py`  -  Traceback, main entry, help, crash handling through `main()`, info, unknown command
-- `tests/test_cli_env_file.py`  -  `--env-file` path passing, validation and value override
-- `tests/test_cli_exit_codes.py`  -  Exit codes through the CLI
-- `tests/test_cli_main_exit.py`  -  Exit codes and stderr through the real `main()` entry point
-- `tests/test_cli_overrides.py`  -  `--set` through the CLI
-- `tests/test_cli_validation.py`  -  Profile name validation
-- `tests/test_config_overrides.py`  -  `--set` parsing tests
-- `tests/test_coverage_database.py`  -  A pytest run leaves every coverage database it did not create alone
-- `tests/test_declared_dependencies.py`  -  Every third-party module imported at run time is a declared dependency
-- `tests/test_deploy_mode_safety.py`  -  `--dir-mode`/`--file-mode` literal, range and safety checks
-- `tests/test_deploy_permissions.py`  -  `config-deploy` permission options
-- `tests/test_display.py`  -  Config display formatting tests
-- `tests/test_enums.py`  -  Domain enum tests
-- `tests/test_errors.py`  -  Domain error types
-- `tests/test_logging.py`  -  Logging configuration model
-- `tests/test_logging_dotenv_isolation.py`  -  Only `LOG_*` lines of a `.env` reach the environment; an invalid `[lib_log_rich]` section or `LOG_*` variable is a configuration failure that leaves logging running
-- `tests/test_memory_logging.py`  -  Testing-composition logging runtime and the per-test logging reset
-- `tests/test_metadata.py`  -  Package metadata and PEP 561 marker tests
-- `tests/test_metadata_sync.py`  -  `__init__conf__` constants stay in sync with `pyproject.toml`
-- `tests/test_module_entry.py`  -  `python -m` entry tests
-- `tests/test_platform_markers.py`  -  The `os_*` markers skip a test off its platform
-- `tests/test_permission_defaults.py`  -  `config-deploy` hands permissions to lib_layered_config: `--set` overrides, `.env` and deployed destinations never decide a mode, refusals exit 78
-- `tests/test_ports.py`  -  Protocol conformance tests
-- `tests/test_property_overrides.py`  -  Property-based `--set` override tests
-- `tests/test_safe_console.py`  -  Legacy-codepage output tests, plus the guard forbidding direct `click.echo`
-- `tests/test_settings_dotenv_numbers.py`  -  Digit-only `.env` values reach every text setting as the text written
+**Runtime dependencies:** rich-click, click, lib_cli_exit_tools, lib_log_rich, python-dotenv,
+lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 
----
+## Core Components
 
-## Architecture
+### Domain (`src/sercomm_printserver/domain/`)
 
-### Layer Assignments
+| Module                | Contents                                                                           |
+|-----------------------|------------------------------------------------------------------------------------|
+| `config_lines.py`     | `ConfigLine`, `split_lines`, `join_lines`: the `NNNN TOKEN:VALUE` line format      |
+| `config_catalogue.py` | Line numbers and tokens of the modelled CONFIG parameters                          |
+| `config_types.py`     | Value types (`Text15`, `Byte`, `BaudRate`, `Parity`, `LptMode`, ...)               |
+| `config_model.py`     | `DeviceConfig` and its sections (`TcpIp`, `Smb`, `Snmp`, `NetWare`, ...)           |
+| `config_reader.py`    | `read_config`: lines to `DeviceConfig`                                             |
+| `config_writer.py`    | `write_config`: `DeviceConfig` back to lines                                       |
+| `config_codec.py`     | `parse_config`, `render_config`, `diff_config`, `with_value`, `ConfigChange`       |
+| `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP) |
+| `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                      |
+| `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`           |
+| `port_status.py`      | `PortStatus`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`            |
+| `enums.py`            | `OutputFormat`, `DeployTarget`                                                     |
+| `errors.py`           | The exception types (see Exit Codes)                                               |
 
-| Directory/Module       | Layer       | Responsibility                                |
-|------------------------|-------------|-----------------------------------------------|
-| `domain/`              | Domain      | Pure logic  -  no I/O, logging, or frameworks |
-| `application/ports.py` | Application | Protocol definitions for adapters             |
-| `adapters/config/`     | Adapters    | Configuration loading, deployment, display    |
-| `adapters/logging/`    | Adapters    | lib_log_rich initialization                   |
-| `adapters/cli/`        | Adapters    | Click CLI framework integration               |
-| `adapters/memory/`     | Adapters    | In-memory implementations for testing         |
-| `composition/`         | Composition | Wires adapters to ports                       |
+### Application (`src/sercomm_printserver/application/`)
 
-### Import Enforcement
+* `print_server.py` - `PrintServer` (firmware_version, info, status, read_config, queue_state,
+  plan_config, write_config, reset, set_password, clear_password, store_ip, factory_default,
+  print_lpd, print_raw), `DevicePorts`, `ConfigWriteResult`.
+* `discovery.py` - `discover(scanner, networks=, timeout=)` returning `DiscoveryReport` of
+  `DiscoveredDevice`; `MAX_HOSTS`, `PRINT_SERVER_GREETING`.
+* `arp_trick.py` - `borrowed_address`, `reach`, `assign_ip`, `factory_reset`, `ArpResult`.
+* `ports.py` - the Protocols below.
 
-Layer boundaries enforced via `import-linter` contracts in `pyproject.toml`:
-- **Domain is pure**: Cannot import from adapters or composition
-- **Clean Architecture layers**: Validates dependency direction (composition -> adapters -> application -> domain)
+| Protocol                                                                    | Implemented by (production)          |
+|-----------------------------------------------------------------------------|--------------------------------------|
+| `FtpPort`                                                                   | `adapters/ftp/client.py` `FtpClient` |
+| `TelnetPort`                                                                | `adapters/telnet/client.py`          |
+| `TftpPort`                                                                  | `adapters/tftp/client.py`            |
+| `LpdPort`                                                                   | `adapters/lpd/client.py`             |
+| `RawPort`                                                                   | `adapters/raw/printer.py`            |
+| `UptimePort`                                                                | `adapters/snmp/uptime.py`            |
+| `HostScanner`                                                               | `adapters/discovery/scanner.py`      |
+| `NeighborTable`, `OpenNeighborTable`                                        | `adapters/neighbors/table.py`        |
+| `OpenPrintServer`                                                           | `composition.open_print_server`      |
+| `GetConfig`, `GetDefaultConfigPath`, `DeployConfiguration`, `DisplayConfig` | `adapters/config/`                   |
+| `InitLogging`, `CheckLoggingConfig`                                         | `adapters/logging/setup.py`          |
 
-Run `lint-imports` to verify compliance.
+### Adapters (`src/sercomm_printserver/adapters/`)
 
----
+* `ftp/`, `telnet/` (`client.py`, `iac.py`), `tftp/`, `lpd/`, `raw/`, `snmp/` - one protocol
+  client each; `snmp` reads only `sysUpTime` with one SNMPv1 GET.
+* `discovery/scanner.py` - `FtpBannerScanner`: concurrent FTP-port probes; MACs and local
+  networks through ipscout.
+* `neighbors/table.py` - `IpscoutNeighborTable`: static ARP entries; maps ipscout's refusal to
+  `HostPrivilegeError`.
+* `config/` - layered configuration (`loader.py`, `deploy.py`, `display.py`, `overrides.py`) and
+  `device_settings.py` (`DeviceSettings`, `resolve_endpoint`) for the `[device]` section.
+* `logging/setup.py` - lib_log_rich initialization.
+* `memory/` - in-memory doubles: `config.py`, `logging.py`, `device.py` (`FakeDevice`,
+  `FakeTftp`), `discovery.py` (`FakeScanner`), `neighbors.py` (`FakeNeighborTable`).
+* `cli/` - `root.py` (group), `main.py`, `context.py`, `config_load.py`, `envelope.py`
+  (`Envelope`, `ErrorEnvelope`, `OutputMode`), `exit_codes.py`, `safe_console.py`,
+  `typed_click.py`, `constants.py`, and `commands/` (`arp.py`, `config.py`, `device.py`,
+  `device_config.py`, `discover.py`, `info.py`, `printing.py`, `_device.py` with the shared
+  options and `exit_code_for`).
 
-## Exit Codes
+### Composition and entry points
 
-POSIX-conventional exit codes defined in `adapters/cli/exit_codes.py`:
-
-| Code | Name                 | Usage                                                                                                    |
-|------|----------------------|----------------------------------------------------------------------------------------------------------|
-| 0    | `SUCCESS`            | Command completed successfully                                                                           |
-| 1    | `GENERAL_ERROR`      | Unhandled exception, general failure                                                                     |
-| 2    | `FILE_NOT_FOUND`     | File not found; also click's usage error (bad option value, malformed `--set`, invalid `--profile` name) |
-| 13   | `PERMISSION_DENIED`  | Cannot write to target directory                                                                         |
-| 22   | `INVALID_ARGUMENT`   | Invalid CLI argument or section not found                                                                |
-| 69   | `DEVICE_UNAVAILABLE` | The print server did not answer (sysexits `EX_UNAVAILABLE`)                                              |
-| 76   | `PROTOCOL_ERROR`     | The print server answered something unexpected (sysexits `EX_PROTOCOL`)                                  |
-| 77   | `REFUSED`            | Refused by policy, such as a destructive action without its confirmation flags (sysexits `EX_NOPERM`)    |
-| 78   | `CONFIG_ERROR`       | Configuration missing, not loadable or invalid                                                           |
-| 110  | `TIMEOUT`            | Operation timed out                                                                                      |
-| 130  | `SIGNAL_INT`         | Interrupted (SIGINT/Ctrl+C)                                                                              |
-| 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                       |
-| 143  | `SIGNAL_TERM`        | Terminated (SIGTERM)                                                                                     |
-
-No command exits 69, 76 or 77 yet; they are reserved for the print-server commands.
-
----
+* `composition/__init__.py` - `AppServices` (frozen container of every port), `build_production`,
+  `build_testing(device=, scanner=, neighbors=)`, `open_print_server`.
+* `entry.py` - console script `sercomm-printserver` (also `sercomm_printserver`).
+* `__main__.py` - `python -m sercomm_printserver`.
+* `__init__conf__.py` - static package metadata and `print_info`.
 
 ## CLI Commands
 
-### Root Command
+Root options: `--version`, `--traceback/--no-traceback`, `--profile NAME`,
+`--set SECTION.KEY=VALUE` (repeatable), `--env-file FILE`, `-h/--help`. Device commands also take
+`--host`, `--timeout`, `--json`, `--json-bare`; changing commands need `--yes`, and
+`password clear`, `store-ip` and `factory-default` also `--confirm-name`.
 
-**Command:** `sercomm-printserver`
+| Command                    | Purpose                                                              |
+|----------------------------|----------------------------------------------------------------------|
+| `info`                     | Print package metadata                                               |
+| `config`                   | Display the merged configuration                                     |
+| `config-deploy`            | Deploy default configuration to app/host/user directories            |
+| `config-generate-examples` | Write example configuration files                                    |
+| `discover`                 | Find print servers by FTP greeting (`--network CIDR`, repeatable)    |
+| `firmware`                 | Firmware version (FTP SYST; no login)                                |
+| `device-info`              | PSINF self-description: names, MAC, firmware, addresses              |
+| `status`                   | Per-port state and printer status (Telnet monitor)                   |
+| `queue [QUEUE]`            | LPD queue state of L1..L8; sends no print data                       |
+| `device-config show`       | Show the whole CONFIG                                                |
+| `device-config get`        | One parameter by token (`IP_ADDR`) or line number (`4000`)           |
+| `device-config set`        | Change `KEY=VALUE` parameters; shows the diff, writes with `--yes`   |
+| `device-config export`     | Save CONFIG exactly as the device sends it                           |
+| `device-config import`     | Write an exported CONFIG; shows the diff, writes with `--yes`        |
+| `reset`                    | Restart and wait until the device answers again (`--no-wait`)        |
+| `password set`             | Set the login password from `--from-file` or a hidden prompt         |
+| `password clear`           | Clear the login password (PASSRESET)                                 |
+| `store-ip`                 | Store the current address as static IP (SETIP)                       |
+| `factory-default`          | Restore factory settings; the device leaves the network (IP 0.0.0.0) |
+| `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                  |
+| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..8         |
+| `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`    |
+| `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there          |
+| `arp factory-reset`        | Restore factory settings of the device behind `--mac`                |
 
-| Option                         | Description                                 |
-|--------------------------------|---------------------------------------------|
-| `--version`                    | Show version and exit                       |
-| `--traceback / --no-traceback` | Show full Python traceback on errors        |
-| `--profile NAME`               | Load configuration from a named profile     |
-| `--set SECTION.KEY=VALUE`      | Override configuration setting (repeatable) |
-| `--env-file PATH`              | Explicit `.env` file path                   |
-| `-h, --help`                   | Show help and exit                          |
+## Exit Codes
 
-### info
+`ExitCode` in `adapters/cli/exit_codes.py`; device commands map errors through `exit_code_for`
+in `adapters/cli/commands/_device.py` (first match wins, anything else exits 1).
 
-Print resolved package metadata.
+| Code | Name                 | Raised for                                                                      |
+|------|----------------------|---------------------------------------------------------------------------------|
+| 0    | `SUCCESS`            | Command completed                                                               |
+| 1    | `GENERAL_ERROR`      | `NeighborTableError`, or any unmapped failure                                   |
+| 2    | `FILE_NOT_FOUND`     | click's usage error (bad option or missing argument); no command raises it      |
+| 13   | `PERMISSION_DENIED`  | `HostPrivilegeError` (no right to change the ARP table); config-deploy refusals |
+| 22   | `INVALID_ARGUMENT`   | `ValueError`, including `ConfigFormatError`; config section not found           |
+| 69   | `DEVICE_UNAVAILABLE` | `DeviceUnavailableError`: refused, timed out, no route                          |
+| 76   | `PROTOCOL_ERROR`     | `DeviceResponseError`: the device answered in an unexpected form                |
+| 77   | `REFUSED`            | `ConfirmationRequiredError`, `AuthenticationRequiredError`                      |
+| 78   | `CONFIG_ERROR`       | `ConfigurationError`: configuration missing, not loadable or invalid            |
+| 110  | `TIMEOUT`            | Defined in the enum; no command exits with it                                   |
+| 130  | `SIGNAL_INT`         | SIGINT (translated by lib_cli_exit_tools)                                       |
+| 141  | `BROKEN_PIPE`        | Output pipe closed                                                              |
+| 143  | `SIGNAL_TERM`        | SIGTERM                                                                         |
 
-**Exit codes:** 0
+## Implementation Details
 
-### config
+**Envelope:** with `--json` (indented) or `--json-bare` (one line) stdout carries only
+`{ok, command, data, skipped}`; a failure is an `ErrorEnvelope` with the same `ok` and `command`
+keys. Messages for a person go to stderr.
 
-Display merged configuration from all sources.
+**Configuration writes:** `PrintServer.write_config` uploads only when `diff_config` finds a
+change, verifies the upload, and with `apply` restarts the device and reports where it is
+reachable (`ConfigWriteResult`).
 
-| Option                   | Description                    |
-|--------------------------|--------------------------------|
-| `--format [human\|json]` | Output format (default: human) |
-| `--section NAME`         | Show only specific section     |
-| `--profile NAME`         | Override the root's profile    |
+**Restart wait:** the device restarts about 5 s after the triggering session ends. `reset` waits
+until the SNMP uptime falls back and the device answers again.
 
-**Exit codes:** 0, 2 (usage error), 22 (section not found), 78 (configuration not loadable)
+**ARP trick:** the static neighbour entry lives only inside `borrowed_address`; the device is
+then spoken to over FTP at the borrowed address, and the entry is removed in every case.
+`factory_reset` refuses unless the PSINF default name matches both `--mac` and `--confirm-name`.
 
-### config-deploy
+**`[device]` defaults** (`adapters/config/defaultconfig.d/50-device.toml`): `host = ""`,
+`login = ""`, `password = ""`, `timeout = 10.0`, `raw_port_base = 9100` (printer Ln uses
+`raw_port_base + n - 1`).
 
-Deploy default configuration to system or user directories.
+## Testing Approach
 
-| Option                             | Description                                                      |
-|------------------------------------|------------------------------------------------------------------|
-| `--target [app\|host\|user]`       | Target layer(s)  -  required, repeatable                         |
-| `--force`                          | Replace differing files, keeping the old one as `<name>.bak`     |
-| `--profile NAME`                   | Deploy to profile subdirectory                                   |
-| `--permissions / --no-permissions` | Set Unix permissions (default: `enabled` from the configuration) |
-| `--dir-mode MODE`                  | Directory mode for every target (octal)                          |
-| `--file-mode MODE`                 | File mode for every target (octal)                               |
+All under `tests/`:
 
-**Exit codes:** 0, 1, 2 (usage error, including a refused `--dir-mode`/`--file-mode` or `--profile` name, and `--no-permissions` together with a mode), 13 (permission denied), 78 (lib_layered_config refused the permission settings: a configured one, which both `--dir-mode` and `--file-mode` or `--no-permissions` deploy past, or a `--set` of `lib_layered_config.default_permissions`)
+* Protocol adapters against loopback fakes (`fake_ftp_server.py`, `fake_telnet_server.py`,
+  `fake_tftp_server.py`, `fake_lpd_server.py`, `fake_raw_server.py`): the `test_adapter_*.py`
+  modules (ftp, telnet, tftp, lpd, raw, snmp, neighbors).
+* Use cases over in-memory adapters: `test_print_server.py`, `test_discovery.py`,
+  `test_arp_trick.py`, `test_config_codec.py`, `test_device_reports.py`, `test_ports.py`.
+* CLI: `test_cli_device.py`, `test_cli_arp.py`, `test_cli_exit_codes.py`,
+  `test_cli_main_exit.py`, `test_cli_core.py` and the config/override `test_cli_*.py` modules.
+* Real device: `test_e2e_device.py`, marker `device` (needs `SERCOMM_E2E=1` and
+  `test-device.json`); marker `printer` also needs `SERCOMM_E2E_PRINTER=1`.
 
-### config-generate-examples
+**Doctests:** `--doctest-modules`. **Platform markers:** `os_agnostic`, `os_windows`, `os_macos`,
+`os_posix`, `os_linux`; `local_only`, `integration`. **Coverage gate:** `fail_under = 80`.
 
-Generate example configuration files.
+## Known Limitations
 
-| Option              | Description                   |
-|---------------------|-------------------------------|
-| `--destination DIR` | Target directory  -  required |
-| `--force`           | Overwrite existing files      |
+* The PS301 refuses action files over TFTP, so `PrintServer` triggers actions over FTP.
+* `password clear` works without a login on firmware 6022: a password does not stop anyone on
+  the network from clearing it.
+* `password set` accepts at most 19 printable ASCII characters.
+* The ARP trick needs the right to change this host's neighbour table (exit 13 otherwise).
 
-**Exit codes:** 0, 1
+## Security Considerations
 
----
+* The password is never taken from the command line (`--from-file` or a hidden prompt) and
+  `config` shows the configured `password` redacted.
+* Destructive commands refuse (exit 77) without `--yes` and, where listed, `--confirm-name`.
+* Discovery reads only the FTP greeting; it never logs in and never prints.
 
-## Profile Validation
-
-Profile names (`--profile` option) are validated using `lib_layered_config.validate_profile_name()`.
-
-### validate_profile()
-
-**Location:** `adapters/config/loader.py`
+## Quick Reference
 
 ```python
-def validate_profile(profile: str, max_length: int | None = None) -> None:
-    """Validate profile name using lib_layered_config."""
+from sercomm_printserver import DeviceEndpoint, PrintJob, discover_print_servers, open_print_server
+
+report = discover_print_servers(networks=["192.0.2.0/24"])
+server = open_print_server(DeviceEndpoint(host="192.0.2.52"))
+print(server.info().firmware_version)
+server.print_lpd("L1", PrintJob(data=b"hello\r\n\f", name="greeting"))
 ```
 
-| Parameter    | Type          | Default  | Description                                 |
-|--------------|---------------|----------|---------------------------------------------|
-| `profile`    | `str`         | required | Profile name to validate                    |
-| `max_length` | `int \| None` | 64       | Maximum length (DEFAULT_MAX_PROFILE_LENGTH) |
-
-### Validation Rules
-
-| Rule             | Description                                          |
-|------------------|------------------------------------------------------|
-| Maximum length   | 64 characters (configurable via `max_length`)        |
-| Character set    | ASCII alphanumeric, hyphens (`-`), underscores (`_`) |
-| Start character  | Must start with alphanumeric character               |
-| Empty string     | Rejected                                             |
-| Windows reserved | CON, PRN, AUX, NUL, COM1-9, LPT1-9 rejected          |
-| Path traversal   | `/`, `\`, `..` rejected                              |
-| Control chars    | Rejected                                             |
-
-### Error Handling
-
-Raises `ValueError` with descriptive message on invalid input.
-
----
-
-## Device Configuration
-
-`adapters/config/defaultconfig.d/50-device.toml` ships the `[device]` section the print-server
-commands will read. Every key ships empty or at its default; `config` shows `password` as
-`***REDACTED***`.
-
-| Key             | Type             | Default | Description                                                             |
-|-----------------|------------------|---------|-------------------------------------------------------------------------|
-| `host`          | string           | `""`    | IPv4 address or host name of the print server                           |
-| `login`         | string           | `""`    | FTP login name; empty means "ask the device for its name first"         |
-| `password`      | string           | `""`    | FTP password (factory default: none)                                    |
-| `timeout`       | float, > 0       | `10.0`  | Network timeout for one operation, in seconds                           |
-| `raw_port_base` | integer, 1-65535 | `9100`  | RAW port of logical printer L1; printer Ln uses `raw_port_base + n - 1` |
-
----
-
-## Configuration Overrides
-
-`adapters/config/overrides.py` parses and applies `--set SECTION.KEY=VALUE`. Public names
-(`__all__`):
-
-| Name              | Kind     | Purpose                                                                                 |
-|-------------------|----------|-----------------------------------------------------------------------------------------|
-| `parse_override`  | function | Split one `SECTION.KEY[.SUBKEY...]=VALUE` string into a `ConfigOverride`                |
-| `coerce_value`    | function | Read a raw value as JSON (bool, number, null, array, object), falling back to the text  |
-| `nest_overrides`  | function | Parse all `--set` values into the nested mapping they override, refusing contradictions |
-| `apply_overrides` | function | Deep-merge the overrides into a `Config`, recording their provenance as `CLI_LAYER`     |
-| `ConfigOverride`  | class    | One parsed override: section, key path and value                                        |
-| `CoercedValue`    | type     | Union of the types `coerce_value` can return                                            |
-| `CLI_LAYER`       | constant | Provenance layer name (`"cli"`) for a value that came from `--set`                      |
-
----
-
-## Testing Infrastructure
-
-### In-Memory Adapters
-
-The `adapters/memory/` package provides lightweight implementations for testing:
-
-| Module              | Protocols Satisfied                                                         |
-|---------------------|-----------------------------------------------------------------------------|
-| `memory/config.py`  | `GetConfig`, `GetDefaultConfigPath`, `DeployConfiguration`, `DisplayConfig` |
-| `memory/logging.py` | `InitLogging`, `CheckLoggingConfig`                                         |
-
-Use `composition.build_testing()` to wire all in-memory adapters. To replace one port, copy the
-container with `dataclasses.replace(build_testing(), get_config=...)`, so a port added later does
-not break the test.
-
-### Test Fixtures (conftest.py)
-
-| Fixture                   | Purpose                                                                                                                                                                 |
-|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `config_factory`          | Creates real `Config` instances from test data                                                                                                                          |
-| `inject_config`           | Injects config into CLI path                                                                                                                                            |
-| `cli_runner`              | Fresh `CliRunner` per test                                                                                                                                              |
-| `strip_ansi`              | Strips ANSI escape codes from output                                                                                                                                    |
-| `clear_config_cache`      | Clears LRU cache before tests                                                                                                                                           |
-| `managed_traceback_state` | Resets/restores traceback configuration                                                                                                                                 |
-| `isolated_logging_state`  | Autouse: after every test, shuts the lib_log_rich runtime down and restores the root logger; yields that restore step                                                   |
-| `user_layer_in_tmp_path`  | Points every OS's user-layer location (`HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `APPDATA`, `LOCALAPPDATA`) at `tmp_path` and returns it, so a real deploy writes there |
-| `config_cli_context`      | Services factory over a `Config` built from a dict, with production adapters and the quiet logging runtime                                                              |
-| `crashing_services`       | Services factory whose `display_config` raises an unexpected `RuntimeError`, so `config` crashes through `main()`'s generic handler                                     |
-
----
-
-**Last Updated:** 2026-10-23 (email and demo commands removed, `[device]` section, exit codes 69/76/77)
+```bash
+sercomm-printserver discover --network 192.0.2.0/24
+sercomm-printserver status --host 192.0.2.52 --json
+sercomm-printserver device-config set --host 192.0.2.52 CONTACT="printer room" --yes
+sercomm-printserver arp reach --mac 00:00:5e:00:53:01 --ip 192.0.2.200
+```

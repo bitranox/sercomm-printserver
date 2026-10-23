@@ -16,6 +16,7 @@ System Role:
 from __future__ import annotations
 
 from .commands import (
+    cli_arp,
     cli_config,
     cli_config_deploy,
     cli_config_generate_examples,
@@ -54,6 +55,7 @@ __all__ = [
     # Root command
     "cli",
     # Commands
+    "cli_arp",
     "cli_config",
     "cli_config_deploy",
     "cli_config_generate_examples",

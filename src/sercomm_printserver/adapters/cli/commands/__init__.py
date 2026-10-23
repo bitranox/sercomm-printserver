@@ -7,10 +7,12 @@ Contents:
     * Info commands from :mod:`.info`
     * App configuration commands from :mod:`.config`
     * Device commands from :mod:`.device`, :mod:`.device_config` and :mod:`.printing`
+    * ARP-trick commands from :mod:`.arp`
 """
 
 from __future__ import annotations
 
+from .arp import cli_arp
 from .config import cli_config, cli_config_deploy, cli_config_generate_examples
 from .device import (
     cli_device_info,
@@ -28,6 +30,7 @@ from .info import cli_info
 from .printing import cli_print
 
 __all__ = [
+    "cli_arp",
     "cli_config",
     "cli_config_deploy",
     "cli_config_generate_examples",

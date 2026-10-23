@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from ..domain.config_codec import with_value
-from ..domain.device_info import DeviceInfo, mac_from_default_name
+from ..domain.device_info import DeviceInfo, mac_from_default_name, normalise_mac
 from ..domain.errors import ConfirmationRequiredError
 from .print_server import ConfigWriteResult
 
@@ -53,7 +53,7 @@ def borrowed_address(table: NeighborTable, *, ip: str, mac: str) -> Generator[No
         ValueError: This host already maps ``ip`` to another MAC - something else holds it.
     """
     holder = table.mac_of(ip)
-    if holder is not None and holder.lower() != mac.lower():
+    if holder is not None and normalise_mac(holder) != normalise_mac(mac):
         raise ValueError(f"{ip} belongs to {holder} on this network; borrow a free address")
     table.set_static(ip, mac)
     try:
@@ -66,6 +66,7 @@ def reach(
     table: NeighborTable, open_server: Callable[[DeviceEndpoint], PrintServer], *, endpoint: DeviceEndpoint, mac: str
 ) -> ArpResult:
     """Read the device's PSINF over a borrowed address; changes nothing on the device."""
+    mac = normalise_mac(mac)
     with borrowed_address(table, ip=endpoint.host, mac=mac):
         device = _identified(open_server(endpoint), mac)
     return ArpResult(mac_address=mac, borrowed_ip=endpoint.host, device=device)
@@ -85,7 +86,9 @@ def assign_ip(
     Raises:
         DeviceResponseError: The device behind the MAC is not one of this family, or stored
             something else than was written.
+        ValueError: ``mac`` is not a MAC address.
     """
+    mac = normalise_mac(mac)
     with borrowed_address(table, ip=endpoint.host, mac=mac):
         server = open_server(endpoint)
         device = _identified(server, mac)
@@ -112,7 +115,8 @@ def factory_reset(
         ConfirmationRequiredError: ``confirm_name`` is not the device's default name derived
             from ``mac``.
     """
-    expected = "SC" + mac.replace(":", "").replace("-", "")[-6:].upper()
+    mac = normalise_mac(mac)
+    expected = "SC" + mac.replace(":", "")[-6:].upper()
     if confirm_name.strip().upper() != expected:
         raise ConfirmationRequiredError(f"factory reset by MAC needs the device's default name {expected}")
     with borrowed_address(table, ip=endpoint.host, mac=mac):
@@ -126,7 +130,7 @@ def _identified(server: PrintServer, mac: str) -> DeviceInfo:
     """Read PSINF and require that the device's own default name matches ``mac``."""
     device = server.info()
     derived = mac_from_default_name(device.default_name)
-    if derived is None or derived.lower() != mac.lower():
+    if derived is None or derived != normalise_mac(mac):
         raise ConfirmationRequiredError(
             f"the device at the borrowed address calls itself {device.default_name}, which is not MAC {mac}"
         )

@@ -14,7 +14,9 @@ Waiting for a restart is the one place a test polls: a rebooting device signals 
 from __future__ import annotations
 
 import json
+import os
 import socket
+import sys
 import time
 from datetime import datetime, timezone
 from ipaddress import IPv4Address
@@ -26,7 +28,9 @@ import pytest
 from pydantic import BaseModel, ConfigDict, SecretStr
 
 from sercomm_printserver.adapters.discovery import FtpBannerScanner
+from sercomm_printserver.adapters.neighbors import IpscoutNeighborTable
 from sercomm_printserver.adapters.tftp import TftpClient
+from sercomm_printserver.application import arp_trick
 from sercomm_printserver.composition import open_print_server
 from sercomm_printserver.domain.config_codec import parse_config, render_config, with_value
 from sercomm_printserver.domain.device_files import ReadableFile
@@ -200,6 +204,35 @@ def test_tftp_reads_the_same_configuration_as_ftp(server: PrintServer, device: _
 
 
 # ---------------------------------------------------------------- changing and restoring
+
+
+def _is_root() -> bool:
+    if sys.platform == "win32":
+        return False
+    return os.geteuid() == 0
+
+
+@pytest.mark.skipif(not _is_root(), reason="writing a static ARP entry needs root; run this file with sudo")
+def test_the_arp_trick_reaches_the_device_at_a_borrowed_address(device: _TestDevice) -> None:
+    # Read-only on the device: PSINF over a borrowed address. The dashed, upper-case MAC is the
+    # spelling a label shows; the static entry must be gone again afterwards.
+    borrowed = _free_address(device)
+
+    result = arp_trick.reach(
+        IpscoutNeighborTable(),
+        open_print_server,
+        endpoint=DeviceEndpoint(host=borrowed, login=device.box_name),
+        mac=device.mac.upper().replace(":", "-"),
+    )
+
+    assert (result.device.default_name, result.borrowed_ip) == (device.default_name, borrowed)
+    assert str(result.device.ip_address) == str(device.host)
+    permanent = [
+        entry
+        for entry in ipscout.neighbours(family=ipscout.AddressFamily.IPV4)
+        if entry.ip == borrowed and entry.state is ipscout.NeighbourState.PERMANENT
+    ]
+    assert permanent == []
 
 
 def test_a_changed_contact_survives_the_restart_and_is_restored(server: PrintServer) -> None:

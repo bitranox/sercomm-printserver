@@ -173,6 +173,12 @@ Für Firmware über 5000 (dieses Gerät: 6022), nach TE-310-Handbuch und Perle-K
 3. Etwa 5 Sekunden warten, bis die rote LED blinkt. Danach ist alles zurückgesetzt, auch die
    IP (0.0.0.0, das Gerät fragt dann DHCP, BOOTP, RARP).
 
+Mit diesem Werkzeug: `sercomm-printserver arp reach | assign-ip | factory-reset --mac MAC --ip
+FREIE_IP` (als root bzw. Administrator). Es setzt den statischen ARP-Eintrag selbst, spricht das
+Gerät per FTP statt TFTP an (TFTP lehnt Aktionsdateien ab, siehe oben) und entfernt den Eintrag
+danach wieder. Gemessen: `arp reach` erreicht das Gerät über eine geliehene freie Adresse im
+eigenen Subnetz und liest PSINF; danach steht für die Adresse kein statischer Eintrag mehr.
+
 Weitere Wege: `get DEFAULTC` per FTP, BiAdmin "InitDevice > Restore Factory Default",
 PSCONFIG "Restore Default Configuration". Das TE-310-Handbuch erwähnt einen Reset-Taster;
 Perle dokumentiert für den IOPRINT+ keinen. Ob der PS301 einen hat, ist nicht geprüft.

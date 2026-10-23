@@ -192,6 +192,12 @@ class NeighborTable(Protocol):
         ...
 
 
+class OpenNeighborTable(Protocol):
+    """Return this host's :class:`NeighborTable`, its entries on ``interface`` (None: let it pick)."""
+
+    def __call__(self, *, interface: str | None = None) -> NeighborTable: ...
+
+
 class OpenPrintServer(Protocol):
     """Return a :class:`~.print_server.PrintServer` for ``endpoint`` wired to real adapters."""
 
@@ -228,6 +234,7 @@ __all__ = [
     "InitLogging",
     "LpdPort",
     "NeighborTable",
+    "OpenNeighborTable",
     "OpenPrintServer",
     "RawPort",
     "TelnetPort",

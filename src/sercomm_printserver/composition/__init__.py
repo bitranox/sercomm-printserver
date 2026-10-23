@@ -16,6 +16,7 @@ from ..adapters.discovery import FtpBannerScanner
 from ..adapters.ftp import FtpClient
 from ..adapters.logging.setup import check_logging_config, init_logging
 from ..adapters.lpd import LpdClient
+from ..adapters.neighbors import IpscoutNeighborTable
 from ..adapters.raw import RawPrinter
 from ..adapters.snmp import SnmpUptime
 from ..adapters.telnet import TelnetClient
@@ -27,6 +28,7 @@ from ..application.print_server import DevicePorts, PrintServer
 if TYPE_CHECKING:
     from ..adapters.memory.device import FakeDevice
     from ..adapters.memory.discovery import FakeScanner
+    from ..adapters.memory.neighbors import FakeNeighborTable
     from ..application.ports import (
         CheckLoggingConfig,
         DeployConfiguration,
@@ -37,6 +39,8 @@ if TYPE_CHECKING:
         HostScanner,
         InitLogging,
         LpdPort,
+        NeighborTable,
+        OpenNeighborTable,
         OpenPrintServer,
         RawPort,
         TelnetPort,
@@ -58,6 +62,8 @@ if TYPE_CHECKING:
     _assert_raw: RawPort = RawPrinter()
     _assert_uptime: UptimePort = SnmpUptime()
     _assert_scanner: HostScanner = FtpBannerScanner()
+    _assert_neighbors: NeighborTable = IpscoutNeighborTable()
+    _assert_open_neighbors: OpenNeighborTable = IpscoutNeighborTable
 
 
 def open_print_server(endpoint: DeviceEndpoint, *, raw_port_base: int = 9100) -> PrintServer:
@@ -91,6 +97,7 @@ class AppServices:
     check_logging_config: CheckLoggingConfig
     open_print_server: OpenPrintServer
     host_scanner: HostScanner
+    open_neighbor_table: OpenNeighborTable
 
 
 def build_production() -> AppServices:
@@ -104,15 +111,19 @@ def build_production() -> AppServices:
         check_logging_config=check_logging_config,
         open_print_server=open_print_server,
         host_scanner=FtpBannerScanner(),
+        open_neighbor_table=IpscoutNeighborTable,
     )
 
 
-def build_testing(*, device: FakeDevice | None = None, scanner: FakeScanner | None = None) -> AppServices:
+def build_testing(
+    *, device: FakeDevice | None = None, scanner: FakeScanner | None = None, neighbors: FakeNeighborTable | None = None
+) -> AppServices:
     """Wire in-memory adapters into an AppServices container.
 
     Args:
         device: The in-memory print server every device command talks to; a bare one when None.
         scanner: The in-memory network discovery probes; an empty one when None.
+        neighbors: The in-memory neighbour table the ARP trick writes; an empty one when None.
 
     Returns:
         AppServices container with in-memory adapters.
@@ -132,8 +143,16 @@ def build_testing(*, device: FakeDevice | None = None, scanner: FakeScanner | No
     from ..adapters.memory.discovery import (  # noqa: PLC0415 - deferred: keeps in-memory test doubles out of the production import path
         FakeScanner,
     )
+    from ..adapters.memory.neighbors import (  # noqa: PLC0415 - deferred: keeps in-memory test doubles out of the production import path
+        FakeNeighborTable,
+    )
 
     fake = device if device is not None else FakeDevice(config="", psinf="", monitor="")
+    table = neighbors if neighbors is not None else FakeNeighborTable()
+
+    def open_table(*, interface: str | None = None) -> NeighborTable:
+        del interface  # one in-memory table stands for every interface
+        return table
 
     def open_fake(endpoint: DeviceEndpoint, *, raw_port_base: int = 9100) -> PrintServer:
         ports = DevicePorts(ftp=fake, telnet=fake, tftp=FakeTftp(fake), lpd=fake, raw=fake, uptime=fake)
@@ -148,6 +167,7 @@ def build_testing(*, device: FakeDevice | None = None, scanner: FakeScanner | No
         check_logging_config=check_logging_config_in_memory,
         open_print_server=open_fake,
         host_scanner=scanner if scanner is not None else FakeScanner(hits=()),
+        open_neighbor_table=open_table,
     )
 
 

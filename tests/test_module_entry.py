@@ -68,8 +68,9 @@ def test_module_entry_exits_with_the_cli_exit_code(
 
 @pytest.mark.os_agnostic
 def test_module_entry_cli_exports_all_registered_commands() -> None:
-    """CLI facade exports all registered commands."""
+    """CLI facade exports all registered commands - and every command the root group registers."""
     expected_commands = {
+        "cli_arp",
         "cli_config",
         "cli_config_deploy",
         "cli_config_generate_examples",
@@ -87,7 +88,9 @@ def test_module_entry_cli_exports_all_registered_commands() -> None:
         "cli_store_ip",
     }
     exported = {name for name in dir(cli_mod) if name.startswith("cli_")}
+    registered = {"cli_" + name.replace("-", "_") for name in cli_mod.cli.commands}
     assert exported == expected_commands
+    assert registered == expected_commands
 
 
 @pytest.mark.os_agnostic

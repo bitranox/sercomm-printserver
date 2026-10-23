@@ -1,0 +1,11 @@
+{
+  "name": "sercomm-printserver",
+  "description": "Manage, configure and print to SerComm network print servers (Sercom PS301 and its TRENDnet, Perle, Netgear and Linksys twins) from Claude Code. Ships the sercomm-printserver skill: find devices, read status and configuration, change settings safely, restart, print by LPD or RAW, and recover a device whose address or password is lost.",
+  "version": "0.1.0",
+  "author": {
+    "name": "bitranox"
+  },
+  "homepage": "https://github.com/bitranox/sercomm-printserver",
+  "repository": "https://github.com/bitranox/sercomm-printserver",
+  "license": "MIT"
+}

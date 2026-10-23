@@ -12,27 +12,26 @@
 [![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 
 
-`sercomm-printserver` will be a command-line tool and Python library for the SerComm family of
-network print servers: the SerComm PS301 and its OEM variants sold by TRENDnet, Linksys,
-Netgear, Perle and others, with two parallel ports plus one serial port or a single parallel
-port. They are configured over FTP through virtual files (`CONFIG`, `PSINF`, `RESET`) and
-print over LPD and raw sockets. What is known about the devices so far is in
-[docs/Manual-PS301.md](docs/Manual-PS301.md) (German).
+`sercomm-printserver` is a command-line tool and Python library for the SerComm family of
+network print servers: the SerComm PS301 and the same hardware sold by TRENDnet, Perle, Netgear
+and Linksys, with two parallel ports plus one serial port or a single parallel port. It finds
+them on the network, reads their status and configuration, changes settings, restarts them,
+prints to them over LPD or raw sockets, and recovers a device whose address or password is
+lost.
 
-Status: work in progress. The print-server client is not written yet; the CLI so far has the
-`info` and configuration commands it inherited from the bitranox CLI template, and the
-configuration already carries a `[device]` section for the print server it will talk to.
+These devices are managed over FTP through "virtual files", and some of those files are actions:
+reading `RESET` restarts the device, reading `DEFAULTC` wipes its settings. The tool never touches
+them by accident. Anything that changes the device shows what it will do first and needs `--yes`;
+anything that can take the device off the network or open it up also needs the device's name.
+Every command can answer in JSON, so scripts get the same information people do.
 
-It builds on:
-- CLI entry point styled with rich-click (rich output + click ergonomics).
-- Layered configuration system with lib_layered_config (defaults -> app -> host -> user -> .env -> env).
-  The `.env` is the first one found from the current directory upward; when there is none,
-  `$XDG_CONFIG_HOME/sercomm-printserver/.env` (`~/.config/...` when unset) is read on Linux
-  (see [CONFIG.md](CONFIG.md) for macOS and Windows).
-- Rich structured logging with lib_log_rich (console, journald, eventlog, Graylog/GELF).
-- Exit-code and messaging helpers powered by lib_cli_exit_tools.
-- Metadata helpers ready for packaging, testing, and release automation.
+What is known about the devices, models and firmware versions is in
+[docs/Manual-PS301.md](docs/Manual-PS301.md) (German) and
+[docs/config-keys.md](docs/config-keys.md).
 
+The CLI is built on rich-click, `lib_layered_config` (defaults, app, host and user files, `.env`
+and environment), `lib_log_rich` and `lib_cli_exit_tools`. Static ARP entries for the address
+recovery are written natively through [ipscout](https://github.com/bitranox/ipscout).
 
 ### Python 3.10+ Baseline
 
@@ -137,74 +136,130 @@ See [CONFIG.md](CONFIG.md) for detailed documentation on the layered configurati
 ## Quick Start
 
 ```bash
-# Install
-uv tool install sercomm_printserver
+uv tool install sercomm-printserver
 
-# Verify
-sercomm-printserver --version
-
-# deploy config files (user level; --target app or host needs sudo)
-sercomm-printserver config-deploy --target user
-
-# Try it out
-sercomm-printserver info
-sercomm-printserver config
+sercomm-printserver discover                         # find print servers on this host's networks
+sercomm-printserver device-info --host 192.0.2.52    # name, MAC, firmware, addresses
+sercomm-printserver status --host 192.0.2.52         # each port and its printer
+sercomm-printserver print lpd L1 page.prn --host 192.0.2.52
 ```
 
 ---
 
 ## Usage
 
-The CLI leverages [rich-click](https://github.com/ewels/rich-click) so help output, validation errors, and prompts render with Rich styling while keeping the familiar click ergonomics.
+Run `sercomm-printserver <command> --help` for every option.
 
-### Available Commands
+### Finding and reading devices
 
 ```bash
-# Display package information
-sercomm-printserver info
+sercomm-printserver discover [--network 192.0.2.0/24]   # reads the FTP greeting only, never logs in
+sercomm-printserver device-info                         # PSINF: names, MAC, firmware, addresses
+sercomm-printserver firmware                            # firmware version, no login needed
+sercomm-printserver status                              # port state and printer status
+sercomm-printserver queue L1                            # LPD queue state; sends no print data
+```
 
-# Configuration management
-sercomm-printserver config                         # Show current configuration
-sercomm-printserver config --format json           # Show as JSON
-sercomm-printserver config --section lib_log_rich  # Show specific section
-sercomm-printserver config --profile production    # Use a named profile
+### Configuration of the device
 
-# Deploy configuration templates to target directories
-# Without profile:
-sercomm-printserver config-deploy --target app    # -> /etc/xdg/{slug}/config.toml
-sercomm-printserver config-deploy --target host   # -> /etc/xdg/{slug}/hosts/{hostname}.toml
-sercomm-printserver config-deploy --target user   # -> ~/.config/{slug}/config.toml
+```bash
+sercomm-printserver device-config show                  # the whole CONFIG, typed
+sercomm-printserver device-config get IP_ADDR           # one value, by token or line number
+sercomm-printserver device-config set DHCP_MODE=Disable IP_ADDR=192.0.2.60          # shows the diff
+sercomm-printserver device-config set DHCP_MODE=Disable IP_ADDR=192.0.2.60 --yes    # writes it
+sercomm-printserver device-config export backup.cfg
+sercomm-printserver device-config import backup.cfg --yes
+```
 
-# With profile:
-sercomm-printserver config-deploy --target app --profile production   # -> /etc/xdg/{slug}/profile/production/config.toml
-sercomm-printserver config-deploy --target host --profile production  # -> /etc/xdg/{slug}/profile/production/hosts/{hostname}.toml
-sercomm-printserver config-deploy --target user --profile production  # -> ~/.config/{slug}/profile/production/config.toml
+A write restarts the device and waits until it answers again, at its new address when the
+change moved it. `--no-apply` writes without the restart.
 
-# With custom permissions (POSIX only):
-sercomm-printserver config-deploy --target user --file-mode 640       # Files with rw-r----- (640)
-sercomm-printserver config-deploy --target user --dir-mode 750        # Directories with rwxr-x--- (750)
-sercomm-printserver config-deploy --target app --no-permissions       # Skip permission setting (use umask)
+### Restart, password, factory settings
 
-# Profile names: alphanumeric, hyphens, underscores; max 64 chars; must start with letter/digit
-# See CONFIG.md for full validation rules
+```bash
+sercomm-printserver reset --yes
+sercomm-printserver password set --yes                  # hidden prompt, or --from-file FILE
+sercomm-printserver password clear --yes --confirm-name PS_EXAMPLE
+sercomm-printserver store-ip --yes --confirm-name PS_EXAMPLE
+sercomm-printserver factory-default --yes --confirm-name PS_EXAMPLE   # device ends at 0.0.0.0
+```
 
-# Deploy configuration examples
-sercomm-printserver config-generate-examples --destination ./examples
+A password does not protect these devices: the firmware lets anyone on the network clear it
+without logging in. Keep them on a network you trust.
 
-# Load configuration from an explicit .env file (skips upward directory search)
-sercomm-printserver --env-file /path/to/.env config
-sercomm-printserver --env-file ./environments/production.env config --section device
+### Printing
 
-# Override configuration at runtime (repeatable --set)
-sercomm-printserver --set lib_log_rich.console_level=DEBUG config
-sercomm-printserver --set device.host=192.0.2.52 config --section device
+```bash
+sercomm-printserver print lpd L1 page.prn               # LPD queue L1..L8
+cat page.prn | sercomm-printserver print lpd L2 -
+sercomm-printserver print raw 1 page.prn                # RAW port of logical printer 1
+```
 
-# Show a full traceback when a command fails unexpectedly
-sercomm-printserver --traceback config
+Prefer LPD: which port a queue feeds is in the device's configuration. Never connect to a RAW port
+without a job; even an empty connection keeps the port busy for minutes.
 
-# All commands work with any entry point
-python -m sercomm_printserver info
-uvx sercomm_printserver info
+### A device without a usable address
+
+The device answers any address this host maps to its MAC, which is how the vendor manuals
+configure a new unit ("ARP trick"). `arp` borrows a free address in this host's subnet for the
+call and removes the ARP entry afterwards. It needs root (or `CAP_NET_ADMIN`) on Linux, root on
+macOS, or Administrator on Windows.
+
+```bash
+sudo sercomm-printserver arp reach --mac 00:c0:02:12:34:56 --ip 192.0.2.77
+sudo sercomm-printserver arp assign-ip --mac 00:c0:02:12:34:56 --ip 192.0.2.77 --yes
+sudo sercomm-printserver arp factory-reset --mac 00:c0:02:12:34:56 --ip 192.0.2.77 --yes --confirm-name SC123456
+```
+
+### JSON and exit codes
+
+Every device command takes `--json` or `--json-bare`:
+
+```json
+{"ok": true, "command": "firmware", "data": {"host": "192.0.2.52", "firmware": "6022"}, "skipped": []}
+```
+
+| Exit code | Meaning                                                                       |
+|-----------|-------------------------------------------------------------------------------|
+| 0         | done                                                                          |
+| 13        | this host lacks a right (`arp`: the ARP table; `config-deploy`: a system dir) |
+| 22        | invalid argument                                                              |
+| 69        | the device did not answer, or did not come back after a restart               |
+| 76        | the device answered something this firmware family does not send              |
+| 77        | refused: confirmation missing, or the device wants a login                    |
+| 78        | configuration error, such as no device address                                |
+
+### Python
+
+```python
+from sercomm_printserver import DeviceEndpoint, PrintJob, open_print_server
+
+server = open_print_server(DeviceEndpoint(host="192.0.2.52"))
+server.print_lpd("L1", PrintJob(data=b"hello\r\n\f", name="greeting"))
+print(server.info().firmware_version)
+```
+
+`discover_print_servers()`, `PrintServer.read_config()`, `write_config()` and `reset()`, and
+`arp_trick` with `IpscoutNeighborTable` cover the rest.
+
+### Application configuration
+
+```bash
+sercomm-printserver config                         # the merged configuration
+sercomm-printserver config --section device
+sercomm-printserver config-deploy --target user    # -> ~/.config/sercomm-printserver/config.toml
+sercomm-printserver --set device.host=192.0.2.52 status
+```
+
+See [CONFIG.md](CONFIG.md) for the precedence, profiles and every key.
+
+### Claude Code skill
+
+The repository is also a Claude Code plugin with a skill for operating these devices:
+
+```text
+/plugin marketplace add bitranox/sercomm-printserver
+/plugin install sercomm-printserver@sercomm-printserver
 ```
 
 ---

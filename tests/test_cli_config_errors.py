@@ -61,6 +61,7 @@ NEEDS_CONFIG: dict[str, list[str]] = {
     "password": ["password", "clear", "--yes", "--confirm-name", "X"],
     "factory-default": ["factory-default", "--yes", "--confirm-name", "X"],
     "print": ["print", "raw", "1", "-"],
+    "arp": ["arp", "reach", "--mac", "00:c0:02:12:34:56", "--ip", "192.0.2.77"],
 }
 RUNS_WITHOUT_CONFIG: dict[str, list[str]] = {
     "discover": ["discover", "--network", "192.0.2.0/30"],

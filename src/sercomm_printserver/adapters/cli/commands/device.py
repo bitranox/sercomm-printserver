@@ -160,7 +160,7 @@ def cli_queue(
     as_json: bool,
     as_json_bare: bool,
 ) -> None:
-    """Show the LPD queue state of QUEUE (L1..L8); prints nothing."""
+    """Show the LPD queue state of QUEUE (L1..L8). Read-only: it sends no print data."""
 
     def work(server: PrintServer) -> QueueReport:
         return QueueReport(

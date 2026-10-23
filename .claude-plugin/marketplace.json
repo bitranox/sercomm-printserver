@@ -1,0 +1,16 @@
+{
+  "name": "sercomm-printserver",
+  "owner": {
+    "name": "bitranox"
+  },
+  "metadata": {
+    "description": "sercomm-printserver delivered as a single Claude Code plugin: a skill to operate SerComm network print servers through the sercomm-printserver CLI."
+  },
+  "plugins": [
+    {
+      "name": "sercomm-printserver",
+      "source": ".",
+      "description": "Operate SerComm print servers with the sercomm-printserver CLI: discover, status, device configuration, restart, LPD and RAW printing, password and address recovery, all with JSON output for scripts."
+    }
+  ]
+}

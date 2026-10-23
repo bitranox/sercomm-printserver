@@ -22,6 +22,8 @@ from sercomm_printserver.domain.errors import (
     ConfirmationRequiredError,
     DeviceResponseError,
     DeviceUnavailableError,
+    HostPrivilegeError,
+    NeighborTableError,
 )
 
 from .. import safe_console
@@ -35,17 +37,23 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
+    from sercomm_printserver.adapters.config.device_settings import DeviceSettings
     from sercomm_printserver.application.print_server import PrintServer
+    from sercomm_printserver.composition import AppServices
+    from sercomm_printserver.domain.endpoint import DeviceEndpoint
 
 _P = TypeVar("_P", bound="BaseModel")
 _F = TypeVar("_F", bound="Callable[..., Any]")
 
 #: Known failures and their exit codes, most specific first: DeviceResponseError and
-#: ConfigFormatError are both ValueErrors, and the refusals are both PermissionErrors.
+#: ConfigFormatError are both ValueErrors, and the refusals and HostPrivilegeError are all
+#: PermissionErrors - only the last says THIS host lacks a right, so it alone exits 13.
 _EXIT_CODES: tuple[tuple[type[Exception], ExitCode], ...] = (
     (ConfigurationError, ExitCode.CONFIG_ERROR),
     (DeviceUnavailableError, ExitCode.DEVICE_UNAVAILABLE),
     (DeviceResponseError, ExitCode.PROTOCOL_ERROR),
+    (HostPrivilegeError, ExitCode.PERMISSION_DENIED),
+    (NeighborTableError, ExitCode.GENERAL_ERROR),
     (AuthenticationRequiredError, ExitCode.REFUSED),
     (ConfirmationRequiredError, ExitCode.REFUSED),
     (ValueError, ExitCode.INVALID_ARGUMENT),
@@ -68,8 +76,14 @@ def exit_code_for(error: Exception) -> ExitCode:
 
 def device_options(command: _F) -> _F:
     """Add ``--host``, ``--timeout``, ``--json`` and ``--json-bare`` to a device command."""
+    host = option("--host", type=str, default=None, help="Print server address (overrides [device] host).")
+    wrapped: Any = host(session_options(command))
+    return wrapped
+
+
+def session_options(command: _F) -> _F:
+    """Add ``--timeout``, ``--json`` and ``--json-bare``: what a command that names its own address needs."""
     decorators = (
-        option("--host", type=str, default=None, help="Print server address (overrides [device] host)."),
         option(
             "--timeout",
             type=click.FloatRange(min=0.1, max=600),
@@ -94,6 +108,26 @@ def run_device_command(
     human: Callable[[_P], str],
 ) -> None:
     """Run ``work`` against the configured device and answer in the requested shape."""
+
+    def on_endpoint(endpoint: DeviceEndpoint, services: AppServices, settings: DeviceSettings) -> _P:
+        return work(services.open_print_server(endpoint, raw_port_base=settings.raw_port_base))
+
+    run_endpoint_command(ctx, command=command, flags=flags, work=on_endpoint, human=human)
+
+
+def run_endpoint_command(
+    ctx: click.Context,
+    *,
+    command: str,
+    flags: DeviceFlags,
+    work: Callable[[DeviceEndpoint, AppServices, DeviceSettings], _P],
+    human: Callable[[_P], str],
+) -> None:
+    """Like :func:`run_device_command`, for work that needs the endpoint and services themselves.
+
+    The ARP trick opens the print server only after this host maps the borrowed address, so it
+    takes the endpoint (``flags.host`` is that address) instead of a ready server.
+    """
     mode = OutputMode.of(as_json=flags.as_json, as_json_bare=flags.as_json_bare)
     cli_ctx = get_cli_context(ctx)
     config = require_config(ctx, cli_ctx)
@@ -101,8 +135,7 @@ def run_device_command(
         try:
             settings = load_device_settings(config)
             endpoint = resolve_endpoint(settings, host=flags.host, timeout=flags.timeout)
-            server = cli_ctx.services.open_print_server(endpoint, raw_port_base=settings.raw_port_base)
-            payload = work(server)
+            payload = work(endpoint, cli_ctx.services, settings)
         except _HANDLED as error:
             report_failure(error, command=command, mode=mode)
             ctx.exit(exit_code_for(error))
@@ -121,4 +154,11 @@ class DeviceFlags(BaseModel, frozen=True, extra="forbid"):
     as_json_bare: bool
 
 
-__all__ = ["DeviceFlags", "device_options", "exit_code_for", "run_device_command"]
+__all__ = [
+    "DeviceFlags",
+    "device_options",
+    "exit_code_for",
+    "run_device_command",
+    "run_endpoint_command",
+    "session_options",
+]

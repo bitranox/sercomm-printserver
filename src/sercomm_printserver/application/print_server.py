@@ -142,7 +142,7 @@ class PrintServer:
         return self._read_text(ReadableFile.CONFIG)
 
     def queue_state(self, queue: str, *, long_format: bool = False) -> str:
-        """Return the LPD queue state of ``queue`` (``L1``..``L8``); prints nothing."""
+        """Return the LPD queue state of ``queue`` (``L1``..``L8``); sends no print data."""
         return self._ports.lpd.queue_state(self._endpoint, queue, long_format=long_format)
 
     # ------------------------------------------------------------------ changing
