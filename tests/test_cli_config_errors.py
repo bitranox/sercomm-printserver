@@ -51,8 +51,19 @@ UNREADABLE = PermissionError(13, "Permission denied", "/etc/xdg/app/config.toml"
 #: that silently reads an empty configuration after a load failure.
 NEEDS_CONFIG: dict[str, list[str]] = {
     "config": ["config"],
+    "firmware": ["firmware"],
+    "device-info": ["device-info"],
+    "status": ["status"],
+    "queue": ["queue", "L1"],
+    "device-config": ["device-config", "show"],
+    "reset": ["reset", "--yes"],
+    "store-ip": ["store-ip", "--yes", "--confirm-name", "X"],
+    "password": ["password", "clear", "--yes", "--confirm-name", "X"],
+    "factory-default": ["factory-default", "--yes", "--confirm-name", "X"],
+    "print": ["print", "raw", "1", "-"],
 }
 RUNS_WITHOUT_CONFIG: dict[str, list[str]] = {
+    "discover": ["discover", "--network", "192.0.2.0/30"],
     "config-deploy": ["config-deploy", "--target", "user"],
     "info": ["info"],
 }

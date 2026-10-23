@@ -6,6 +6,7 @@ via CLI integration tests. Static type conformance is enforced by pyright.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
         GetDefaultConfigPath,
         InitLogging,
     )
+    from sercomm_printserver.composition import AppServices
 
 
 # ======================== In-Memory Adapter Contract Tests ========================
@@ -115,8 +117,7 @@ def test_build_production_services_are_callable() -> None:
     from sercomm_printserver.composition import build_production
 
     services = build_production()
-    for field_name in services.__dataclass_fields__:
-        assert callable(getattr(services, field_name))
+    _assert_every_port_is_usable(services)
 
 
 @pytest.mark.os_agnostic
@@ -125,5 +126,18 @@ def test_build_testing_services_are_callable() -> None:
     from sercomm_printserver.composition import build_testing
 
     services = build_testing()
-    for field_name in services.__dataclass_fields__:
-        assert callable(getattr(services, field_name))
+    _assert_every_port_is_usable(services)
+
+
+#: Ports that are objects with several methods rather than one callable, and those methods.
+_OBJECT_PORTS = {"host_scanner": ("local_networks", "probe_ftp", "mac_address")}
+
+
+def _assert_every_port_is_usable(services: AppServices) -> None:
+    for field in dataclasses.fields(services):
+        port = getattr(services, field.name)
+        methods = _OBJECT_PORTS.get(field.name)
+        if methods is None:
+            assert callable(port), field.name
+        else:
+            assert all(callable(getattr(port, method)) for method in methods), field.name

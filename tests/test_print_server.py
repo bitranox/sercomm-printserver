@@ -1,0 +1,266 @@
+"""PrintServer use cases against the in-memory device, which stands behind every port."""
+
+from __future__ import annotations
+
+from ipaddress import IPv4Address
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+from pydantic import SecretStr
+
+from sercomm_printserver.adapters.memory.device import FakeDevice, FakeTftp
+from sercomm_printserver.application.print_server import DevicePorts, PrintServer
+from sercomm_printserver.domain.config_codec import render_config, with_value
+from sercomm_printserver.domain.device_files import DeviceAction
+from sercomm_printserver.domain.endpoint import DeviceEndpoint, PrintJob
+from sercomm_printserver.domain.errors import (
+    AuthenticationRequiredError,
+    ConfirmationRequiredError,
+    DeviceResponseError,
+    DeviceUnavailableError,
+)
+from sercomm_printserver.domain.port_status import PortState
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sercomm_printserver.application.ports import FtpPort, LpdPort, RawPort, TelnetPort, TftpPort
+
+_DUMPS = Path(__file__).resolve().parents[1] / "docs" / "device-dump"
+_ENDPOINT = DeviceEndpoint(host="192.0.2.52")
+
+
+def _device(*, login_for_writes: str | None = None) -> FakeDevice:
+    return FakeDevice(
+        config=(_DUMPS / "CONFIG.txt").read_text(encoding="ascii"),
+        psinf=(_DUMPS / "PSINF.txt").read_text(encoding="ascii"),
+        monitor="(P1)STATE: Idle\r\nTYPE: Parallel\r\nPRINTER STATUS: Offline\r\n",
+        login_for_writes=login_for_writes,
+    )
+
+
+def _server(device: FakeDevice, *, endpoint: DeviceEndpoint = _ENDPOINT) -> PrintServer:
+    ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device)
+    return PrintServer(endpoint, ports)
+
+
+def test_the_fake_device_satisfies_every_port() -> None:
+    device = _device()
+    ftp: FtpPort = device
+    telnet: TelnetPort = device
+    tftp: TftpPort = FakeTftp(device)
+    lpd: LpdPort = device
+    raw: RawPort = device
+    assert (ftp, telnet, tftp, lpd, raw) is not None
+
+
+# ---------------------------------------------------------------- reading
+
+
+def test_reading_returns_typed_reports() -> None:
+    server = _server(_device())
+
+    assert server.firmware_version() == "6022"
+    assert server.info().server_name == "PS_EXAMPLE"
+    assert server.status()[0].state is PortState.IDLE
+    assert server.read_config().tcp_ip.ip_address == IPv4Address("192.0.2.52")
+
+
+def test_the_config_text_comes_back_exactly_as_the_device_sent_it() -> None:
+    device = _device()
+
+    assert _server(device).read_config_text() == device.config
+
+
+def test_an_unreachable_device_surfaces_as_device_unavailable() -> None:
+    device = _device()
+    device.reachable = False
+
+    with pytest.raises(DeviceUnavailableError):
+        _server(device).firmware_version()
+
+
+# ---------------------------------------------------------------- writing the configuration
+
+
+def test_writing_an_unchanged_configuration_uploads_nothing() -> None:
+    device = _device()
+    server = _server(device)
+
+    result = server.write_config(server.read_config())
+
+    assert (result.written, result.applied, result.changes) == (False, False, ())
+    assert device.actions == []
+
+
+def test_a_changed_configuration_is_uploaded_verified_and_applied_by_a_reset() -> None:
+    device = _device()
+    server = _server(device)
+    new = with_value(server.read_config(), "CONTACT", "printer room")
+
+    result = server.write_config(new)
+
+    assert [(change.token, change.new) for change in result.changes] == [("CONTACT", "printer room")]
+    assert (result.written, result.applied) == (True, True)
+    assert "6000 CONTACT:printer room\n" in device.config
+    assert device.actions == [DeviceAction.RESET]
+
+
+def test_a_write_without_apply_leaves_the_device_running() -> None:
+    device = _device()
+    server = _server(device)
+
+    result = server.write_config(with_value(server.read_config(), "CONTACT", "x"), apply=False)
+
+    assert (result.written, result.applied) == (True, False)
+    assert device.actions == []
+
+
+def test_a_device_that_stores_something_else_is_reported_and_not_reset() -> None:
+    device = _device()
+    server = _server(device)
+    new = with_value(server.read_config(), "CONTACT", "x")
+
+    device.store_rewrites[render_config(new)] = device.config
+    with pytest.raises(DeviceResponseError, match="stored a different configuration: CONTACT"):
+        server.write_config(new)
+    assert device.actions == []
+
+
+def test_a_new_mail_password_is_not_mistaken_for_a_failed_write() -> None:
+    device = _device()
+    server = _server(device)
+
+    result = server.write_config(with_value(server.read_config(), "MAIL_PAS", "newsecret"))
+
+    assert result.written is True
+    assert "4102 MAIL_PAS:newsecret\n" in device.config
+
+
+# ---------------------------------------------------------------- login
+
+
+def test_a_write_the_device_refuses_is_retried_with_the_device_name_as_login() -> None:
+    device = _device(login_for_writes="PS_EXAMPLE")
+
+    _server(device).reset()
+
+    assert device.actions == [DeviceAction.RESET]
+
+
+def test_a_configured_login_that_is_refused_is_not_retried_with_another_one() -> None:
+    device = _device(login_for_writes="PS_EXAMPLE")
+    endpoint = DeviceEndpoint(host="192.0.2.52", login="WRONG")
+
+    with pytest.raises(AuthenticationRequiredError):
+        _server(device, endpoint=endpoint).reset()
+    assert device.actions == []
+
+
+def test_a_password_is_stored_and_then_needed_for_the_next_write() -> None:
+    device = _device(login_for_writes="PS_EXAMPLE")
+    server = _server(device)
+
+    server.set_password(SecretStr("s3cret"))
+
+    assert device.credential == "s3cret"
+    with pytest.raises(AuthenticationRequiredError):
+        server.reset()
+    _server(device, endpoint=DeviceEndpoint(host="192.0.2.52", password=SecretStr("s3cret"))).reset()
+    assert device.actions == [DeviceAction.RESET]
+
+
+@pytest.mark.parametrize("password", ["x" * 20, "M\u00fcller", "tab\there"])
+def test_a_password_the_device_cannot_store_is_refused_before_sending(password: str) -> None:
+    device = _device()
+
+    with pytest.raises(ValueError, match="at most 19 printable ASCII characters"):
+        _server(device).set_password(SecretStr(password))
+    assert device.credential == ""
+
+
+# ---------------------------------------------------------------- confirmed actions
+
+
+def _factory_default(server: PrintServer, name: str) -> None:
+    server.factory_default(confirm_name=name)
+
+
+def _clear_password(server: PrintServer, name: str) -> None:
+    server.clear_password(confirm_name=name)
+
+
+def _store_ip(server: PrintServer, name: str) -> None:
+    server.store_ip(confirm_name=name)
+
+
+_CONFIRMED_ACTIONS = [
+    (_factory_default, DeviceAction.FACTORY_DEFAULT),
+    (_clear_password, DeviceAction.CREDENTIAL_RESET),
+    (_store_ip, DeviceAction.STORE_IP),
+]
+
+
+@pytest.mark.parametrize(("call", "action"), _CONFIRMED_ACTIONS)
+@pytest.mark.parametrize("name", ["PS_EXAMPLE", "ps_example", " SC123456 "])
+def test_a_dangerous_action_runs_when_the_device_name_is_repeated(
+    call: Callable[[PrintServer, str], None], action: DeviceAction, name: str
+) -> None:
+    device = _device()
+
+    call(_server(device), name)
+
+    assert device.actions == [action]
+
+
+@pytest.mark.parametrize(("call", "action"), _CONFIRMED_ACTIONS)
+@pytest.mark.parametrize("name", ["", "PS_OTHER", "SC000000"])
+def test_a_dangerous_action_without_the_right_name_does_nothing(
+    call: Callable[[PrintServer, str], None], action: DeviceAction, name: str
+) -> None:
+    device = _device()
+
+    with pytest.raises(ConfirmationRequiredError, match="PS_EXAMPLE or SC123456"):
+        call(_server(device), name)
+    assert action not in device.actions
+
+
+# ---------------------------------------------------------------- printing
+
+
+def test_an_lpd_job_goes_to_the_named_queue() -> None:
+    device = _device()
+    job = PrintJob(data=b"%!PS\n", name="report")
+
+    _server(device).print_lpd("L2", job)
+
+    assert device.lpd_jobs == [("L2", job)]
+    assert _server(device).queue_state("L2") == "L2: 1 job(s)\n"
+
+
+@pytest.mark.parametrize(("printer", "port"), [(1, 9100), (2, 9101), (3, 9102)])
+def test_raw_data_goes_to_the_port_of_the_logical_printer(printer: int, port: int) -> None:
+    device = _device()
+
+    _server(device).print_raw(printer, b"\x1bE")
+
+    assert device.raw_sends == [(port, b"\x1bE")]
+
+
+def test_the_raw_port_base_is_configurable() -> None:
+    device = _device()
+    ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device)
+
+    PrintServer(_ENDPOINT, ports, raw_port_base=4010).print_raw(1, b"x")
+
+    assert device.raw_sends == [(4010, b"x")]
+
+
+@pytest.mark.parametrize(("printer", "data", "message"), [(1, b"", "without data"), (0, b"x", "has no RAW port")])
+def test_raw_printing_refuses_before_connecting(printer: int, data: bytes, message: str) -> None:
+    device = _device()
+
+    with pytest.raises(ValueError, match=message):
+        _server(device).print_raw(printer, data)
+    assert device.raw_sends == []

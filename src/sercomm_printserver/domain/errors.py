@@ -42,7 +42,6 @@ class DeviceResponseError(ValueError):
     """
 
 
-
 class DeviceUnavailableError(ConnectionError):
     """The print server could not be reached: refused, timed out, or no route.
 

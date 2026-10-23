@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from ipaddress import IPv4Network
     from pathlib import Path
 
     from lib_layered_config import Config
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from ..domain.device_files import DeviceAction, ReadableFile, WritableFile
     from ..domain.endpoint import DeviceEndpoint, PrintJob
     from ..domain.enums import DeployTarget, OutputFormat
+    from .discovery import ProbeHit
+    from .print_server import PrintServer
 
 
 class GetConfig(Protocol):
@@ -83,7 +86,6 @@ class CheckLoggingConfig(Protocol):
     """
 
     def __call__(self, config: Config) -> None: ...
-
 
 
 class FtpPort(Protocol):
@@ -155,6 +157,32 @@ class RawPort(Protocol):
         ...
 
 
+class OpenPrintServer(Protocol):
+    """Return a :class:`~.print_server.PrintServer` for ``endpoint`` wired to real adapters."""
+
+    def __call__(self, endpoint: DeviceEndpoint, *, raw_port_base: int = ...) -> PrintServer: ...
+
+
+class HostScanner(Protocol):
+    """What discovery needs from the network."""
+
+    def local_networks(self) -> tuple[IPv4Network, ...]:
+        """Return the IPv4 networks this host is attached to."""
+        ...
+
+    def probe_ftp(self, hosts: Sequence[str], *, timeout: float) -> tuple[ProbeHit, ...]:
+        """Connect to port 21 of every host; return those that greeted, with their SYST reply.
+
+        Hosts that refuse, time out or are absent are left out; it never logs in and never
+        sends anything but ``SYST`` and ``QUIT``.
+        """
+        ...
+
+    def mac_address(self, host: str) -> str | None:
+        """Return the host's MAC from this machine's neighbour cache, or None."""
+        ...
+
+
 __all__ = [
     "CheckLoggingConfig",
     "DeployConfiguration",
@@ -162,8 +190,10 @@ __all__ = [
     "FtpPort",
     "GetConfig",
     "GetDefaultConfigPath",
+    "HostScanner",
     "InitLogging",
     "LpdPort",
+    "OpenPrintServer",
     "RawPort",
     "TelnetPort",
     "TftpPort",

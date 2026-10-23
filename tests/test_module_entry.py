@@ -73,7 +73,18 @@ def test_module_entry_cli_exports_all_registered_commands() -> None:
         "cli_config",
         "cli_config_deploy",
         "cli_config_generate_examples",
+        "cli_device_config",
+        "cli_device_info",
+        "cli_discover",
+        "cli_factory_default",
+        "cli_firmware",
         "cli_info",
+        "cli_password",
+        "cli_print",
+        "cli_queue",
+        "cli_reset",
+        "cli_status",
+        "cli_store_ip",
     }
     exported = {name for name in dir(cli_mod) if name.startswith("cli_")}
     assert exported == expected_commands

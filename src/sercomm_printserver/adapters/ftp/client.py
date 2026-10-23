@@ -23,7 +23,7 @@ calls apart from the injected clock and sleep.
 from __future__ import annotations
 
 import contextlib
-import ftplib
+import ftplib  # nosec B402 - the print server speaks only FTP; it offers no encrypted protocol
 import io
 import time
 from typing import TYPE_CHECKING

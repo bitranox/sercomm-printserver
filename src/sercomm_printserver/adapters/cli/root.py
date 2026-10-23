@@ -122,7 +122,18 @@ def _register_commands() -> None:
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
+        cli_device_config,
+        cli_device_info,
+        cli_discover,
+        cli_factory_default,
+        cli_firmware,
         cli_info,
+        cli_password,
+        cli_print,
+        cli_queue,
+        cli_reset,
+        cli_status,
+        cli_store_ip,
     )
 
     for cmd in (
@@ -130,6 +141,17 @@ def _register_commands() -> None:
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
+        cli_discover,
+        cli_firmware,
+        cli_device_info,
+        cli_status,
+        cli_queue,
+        cli_device_config,
+        cli_reset,
+        cli_store_ip,
+        cli_password,
+        cli_factory_default,
+        cli_print,
     ):
         cli.add_command(cmd)
 
