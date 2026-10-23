@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
     from lib_layered_config import Config
 
+    from ..domain.device_files import DeviceAction, ReadableFile, WritableFile
+    from ..domain.endpoint import DeviceEndpoint, PrintJob
     from ..domain.enums import DeployTarget, OutputFormat
 
 
@@ -83,11 +85,86 @@ class CheckLoggingConfig(Protocol):
     def __call__(self, config: Config) -> None: ...
 
 
+
+class FtpPort(Protocol):
+    """FTP access to the print server: firmware version, virtual files, actions.
+
+    The device serves one connection at a time, refuses PASV (active mode only) and refuses a
+    new connection for about 0.1 s after the previous one closed; an adapter opens a fresh
+    connection per call and absorbs that short refusal.
+
+    Every method raises ``DeviceUnavailableError`` when the device cannot be reached,
+    ``AuthenticationRequiredError`` on a 530 reply and ``DeviceResponseError`` on any other
+    unexpected reply.
+    """
+
+    def system_reply(self, endpoint: DeviceEndpoint) -> str:
+        """Return the reply to ``SYST`` (``215 Print Server FW nnnn``); needs no login."""
+        ...
+
+    def retrieve(self, endpoint: DeviceEndpoint, name: ReadableFile) -> bytes:
+        """Return the bytes of a readable virtual file."""
+        ...
+
+    def store(self, endpoint: DeviceEndpoint, name: WritableFile, data: bytes) -> None:
+        """Upload ``data`` as a writable virtual file."""
+        ...
+
+    def trigger(self, endpoint: DeviceEndpoint, action: DeviceAction) -> None:
+        """Trigger an action by ``get`` of its file; the device may drop the connection."""
+        ...
+
+
+class TelnetPort(Protocol):
+    """The Telnet console: no login, prompt ``PS>``, commands Help, Monitor, Exit."""
+
+    def monitor(self, endpoint: DeviceEndpoint) -> str:
+        """Return the text the ``monitor`` command prints."""
+        ...
+
+
+class TftpPort(Protocol):
+    """TFTP access: reads and actions without any login (vendor manual; works by IP alone)."""
+
+    def retrieve(self, endpoint: DeviceEndpoint, name: ReadableFile) -> bytes:
+        """Return the bytes of a readable virtual file."""
+        ...
+
+    def trigger(self, endpoint: DeviceEndpoint, action: DeviceAction) -> None:
+        """Trigger an action by requesting its file."""
+        ...
+
+
+class LpdPort(Protocol):
+    """LPD (RFC 1179) on port 515; queues are the logical printers ``L1``..``L8``."""
+
+    def queue_state(self, endpoint: DeviceEndpoint, queue: str, *, long_format: bool) -> str:
+        """Return the queue state text (command 0x03 short, 0x04 long). Prints nothing."""
+        ...
+
+    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> None:
+        """Send one print job to ``queue``."""
+        ...
+
+
+class RawPort(Protocol):
+    """RAW / direct-socket printing: the bytes go straight to the port, no protocol."""
+
+    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes) -> None:
+        """Connect to ``port``, send ``data``, close."""
+        ...
+
+
 __all__ = [
     "CheckLoggingConfig",
     "DeployConfiguration",
     "DisplayConfig",
+    "FtpPort",
     "GetConfig",
     "GetDefaultConfigPath",
     "InitLogging",
+    "LpdPort",
+    "RawPort",
+    "TelnetPort",
+    "TftpPort",
 ]

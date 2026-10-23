@@ -42,8 +42,39 @@ class DeviceResponseError(ValueError):
     """
 
 
+
+class DeviceUnavailableError(ConnectionError):
+    """The print server could not be reached: refused, timed out, or no route.
+
+    Example:
+        >>> isinstance(DeviceUnavailableError("192.0.2.52:21 refused the connection"), OSError)
+        True
+    """
+
+
+class AuthenticationRequiredError(PermissionError):
+    """The print server refused the operation until the right login and password are given.
+
+    Example:
+        >>> str(AuthenticationRequiredError("530 Not logged in."))
+        '530 Not logged in.'
+    """
+
+
+class ConfirmationRequiredError(PermissionError):
+    """A destructive action was asked for without the confirmation it needs.
+
+    Example:
+        >>> str(ConfirmationRequiredError("factory default needs the device name PS_EXAMPLE"))
+        'factory default needs the device name PS_EXAMPLE'
+    """
+
+
 __all__ = [
+    "AuthenticationRequiredError",
     "ConfigFormatError",
     "ConfigurationError",
+    "ConfirmationRequiredError",
     "DeviceResponseError",
+    "DeviceUnavailableError",
 ]
