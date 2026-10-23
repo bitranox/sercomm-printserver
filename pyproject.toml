@@ -13,7 +13,6 @@ dependencies = [
     "lib_log_rich>=6.5.7",
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.3.0",
-    "btx_lib_mail>=4.5.0",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
 ]
@@ -153,7 +152,7 @@ select = [
 convention = "google"
 
 [tool.ruff.lint.flake8-type-checking]
-# The Pydantic models (EmailConfig, LoggingConfigModel)
+# The Pydantic models (LoggingConfigModel and the device models)
 # resolve their field annotations at model-build time, so their field-type imports
 # must stay at runtime even though the file uses ``from __future__ import annotations``.
 # Telling ruff about the Pydantic base keeps TC001/TC002/TC003 from moving those
@@ -172,7 +171,6 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # Protocols/adapters: many-param signatures by design
 "src/sercomm_printserver/application/*.py" = ["PLR0913"]
 "src/sercomm_printserver/adapters/config/*.py" = ["PLR0913"]
-"src/sercomm_printserver/adapters/email/*.py" = ["PLR0913"]
 "src/sercomm_printserver/adapters/memory/*.py" = ["PLR0913"]
 
 [tool.pyright]
@@ -192,7 +190,7 @@ markers = [
   "os_posix: test exercises behavior requiring POSIX semantics",
   "os_linux: test exercises Linux-only behavior",
   "local_only: tests that require the local dev environment (external resources, script composition); skipped in CI",
-  "integration: tests requiring external resources (SMTP, databases, APIs); run via 'bmk ti' or 'mktesti.sh'",
+  "integration: tests requiring external resources (network services, databases, APIs); run via 'bmk ti' or 'mktesti.sh'",
 ]
 
 [tool.coverage.run]
@@ -300,4 +298,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {btx-lib-mail = false, lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-17T16:09:43Z", certifi = "2026-10-20T02:24:17Z"}
+exclude-newer-package = { lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-17T16:09:43Z", certifi = "2026-10-20T02:24:17Z"}

@@ -1,0 +1,63 @@
+# ==============================================================================
+# Device Configuration - the SerComm print server this CLI talks to
+# ==============================================================================
+#
+# Settings are loaded via lib_layered_config and can be overridden via:
+#   - App/Host/User config files (see precedence list in defaultconfig.toml)
+#   - Environment variables (see below)
+#   - Command-line flags (--host and friends win over everything here)
+#
+# Environment Variable Naming
+# ---------------------------
+#   Format: <SLUG>___<SECTION>__<KEY>=<VALUE>
+#
+#   Examples:
+#     SERCOMM_PRINTSERVER___DEVICE__HOST=192.0.2.52
+#     SERCOMM_PRINTSERVER___DEVICE__PASSWORD=secret
+#
+# .env File Support
+# -----------------
+# In .env files (no prefix needed), use double underscore for nesting:
+#
+#   DEVICE__HOST=192.0.2.52
+#   DEVICE__PASSWORD=secret
+#
+# Precedence (lowest to highest):
+#   defaults -> app config -> host config -> user config -> .env file -> env vars
+#
+# IMPORTANT: Never commit .env files containing secrets to version control
+#
+[device]
+
+# Purpose: Address of the print server (IPv4 address or host name)
+# Type: string
+# Default: "" (empty: every command that talks to a device needs --host)
+# Environment Variable: SERCOMM_PRINTSERVER___DEVICE__HOST=192.0.2.52
+host = ""
+
+# Purpose: FTP login name. The vendor manuals use the device name (BOX_NAME, or the
+#          default name SCxxxxxx); empty means "ask the device for its name first".
+# Type: string
+# Default: ""
+# Environment Variable: SERCOMM_PRINTSERVER___DEVICE__LOGIN=PS_EXAMPLE
+login = ""
+
+# Purpose: FTP password. Factory default is no password.
+# Type: string (redacted in 'config' output)
+# Default: ""
+# Environment Variable: SERCOMM_PRINTSERVER___DEVICE__PASSWORD=secret
+password = ""
+
+# Purpose: Network timeout for one operation, in seconds
+# Type: float, greater than 0
+# Default: 10.0
+# Environment Variable: SERCOMM_PRINTSERVER___DEVICE__TIMEOUT=10.0
+timeout = 10.0
+
+# Purpose: TCP port of the RAW (direct socket) print port of logical printer L1.
+#          Logical printer Ln uses raw_port_base + n - 1. The PS301 has 9100-9102
+#          open; the vendor manuals name 4010/4020/4030 instead.
+# Type: integer, 1-65535
+# Default: 9100
+# Environment Variable: SERCOMM_PRINTSERVER___DEVICE__RAW_PORT_BASE=9100
+raw_port_base = 9100
