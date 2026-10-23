@@ -104,13 +104,21 @@ def _banner(host: str, *, timeout: float = 2.0) -> str | None:
 
 
 def _free_address(device: _TestDevice) -> str:
+    """Return the first candidate nothing answers on - not ping, not FTP, not even ARP."""
     for candidate in device.e2e.free_ip_candidates:
         address = str(candidate)
-        known = {neighbour.ip for neighbour in ipscout.neighbours(family=ipscout.AddressFamily.IPV4)}
-        if address in known or ipscout.ping(address, 2).reached or _banner(address, timeout=1.0) is not None:
+        if ipscout.ping(address, 2).reached or _banner(address, timeout=1.0) is not None:
             continue
-        return address
+        # A host that drops ping and closes port 21 still answers ARP for the attempts above.
+        if not _has_mac(address):
+            return address
     pytest.fail("no free address among e2e.free_ip_candidates")
+
+
+def _has_mac(address: str) -> bool:
+    return any(
+        neighbour.ip == address and neighbour.mac for neighbour in ipscout.neighbours(family=ipscout.AddressFamily.IPV4)
+    )
 
 
 def _connect_ftp(host: str) -> socket.socket:
