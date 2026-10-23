@@ -71,6 +71,8 @@ class FakeLpdServer:
         silent: Never answer anything; just record until the client gives up and closes.
         hang_up_before_data: Acknowledge the first file header, then close without reading
             the file, so a client still sending it hits a reset.
+        stall_before_data: Acknowledge the first file header, then stop reading and keep the
+            connection open until the server is stopped, like a device whose buffer is full.
 
     Attributes:
         received: Every byte the client sent, in order; complete once ``finished`` is set.
@@ -84,9 +86,12 @@ class FakeLpdServer:
         queue_reply: bytes = b"",
         silent: bool = False,
         hang_up_before_data: bool = False,
+        stall_before_data: bool = False,
     ) -> None:
         self._acks = dict(acks or {})
         self._hang_up_before_data = hang_up_before_data
+        self._stall_before_data = stall_before_data
+        self._stop = threading.Event()
         self._queue_reply = queue_reply
         self._silent = silent
         self._listener = socket.create_server(("127.0.0.1", 0))
@@ -110,6 +115,7 @@ class FakeLpdServer:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        self._stop.set()
         self._listener.close()
         self._thread.join(_JOIN_TIMEOUT)
 
@@ -145,6 +151,9 @@ class FakeLpdServer:
         while subcommand := reader.readline():
             step += 1
             if not self._ack(conn, step) or self._hang_up_before_data:
+                return
+            if self._stall_before_data:
+                self._stop.wait(_JOIN_TIMEOUT)
                 return
             count = int(subcommand[1:].split(b" ", 1)[0])
             reader.read_exact(count + 1)

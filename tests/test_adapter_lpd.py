@@ -179,6 +179,28 @@ def test_a_device_hanging_up_while_the_data_is_sent_is_a_response_error() -> Non
         assert server.finished.wait(_WAIT)
 
 
+def test_a_device_that_stops_taking_the_data_times_out_while_it_is_sent() -> None:
+    # Discriminates on Windows only: it accepts one send call of any size whole, so a job handed
+    # to a single sendall "succeeds" there at once and the timeout comes from the acknowledgement
+    # read instead. Linux and macOS block once the buffers fill, whichever way the job is split.
+    job = PrintJob(data=b"D" * (32 * 1024 * 1024), client_host="ws1")
+
+    with (
+        FakeLpdServer(stall_before_data=True) as server,
+        pytest.raises(DeviceResponseError, match=r"broke off during the data file: .* while sending$"),
+    ):
+        _client().submit(_endpoint(server.port, timeout=_SHORT_TIMEOUT), "L1", job)
+
+    assert server.finished.wait(_WAIT)
+
+
+def test_a_silent_acknowledgement_says_the_wait_for_the_reply_timed_out() -> None:
+    with FakeLpdServer(silent=True) as server:
+        with pytest.raises(DeviceUnavailableError, match=r": .* while waiting for the reply$"):
+            _client().submit(_endpoint(server.port, timeout=_SHORT_TIMEOUT), "L1", _JOB)
+        assert server.finished.wait(_WAIT)
+
+
 def test_submit_on_a_silent_device_is_unavailable() -> None:
     with FakeLpdServer(silent=True) as server:
         with pytest.raises(DeviceUnavailableError, match="did not answer the receive-job command"):

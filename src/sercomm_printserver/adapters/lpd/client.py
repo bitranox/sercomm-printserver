@@ -111,7 +111,12 @@ class _LpdConnection:
         self._sock.close()
 
     def send(self, data: bytes | memoryview, *, step: str) -> None:
-        """Send ``data`` completely.
+        """Send ``data`` completely; callers pass pieces of at most ``_CHUNK`` bytes.
+
+        The piece size is what makes the timeout bound a device that stopped reading: Windows
+        accepts one send call of any size whole while its send buffer is not full, so a whole
+        job handed to one ``sendall`` returns at once there and the stall would only surface
+        later, as a missing acknowledgement.
 
         Raises:
             DeviceUnavailableError: The connection failed before the device answered anything.
@@ -120,7 +125,7 @@ class _LpdConnection:
         try:
             self._sock.sendall(data)
         except OSError as exc:
-            raise self._lost(step, str(exc)) from exc
+            raise self._lost(step, f"{exc} while sending") from exc
 
     def expect_ack(self, step: str) -> None:
         """Read the one-byte acknowledgement of ``step``.
@@ -156,7 +161,7 @@ class _LpdConnection:
         try:
             return self._sock.recv(size)
         except OSError as exc:
-            raise self._lost(step, str(exc)) from exc
+            raise self._lost(step, f"{exc} while waiting for the reply") from exc
 
     def _lost(self, step: str, detail: str) -> DeviceUnavailableError | DeviceResponseError:
         if self._answered:
@@ -192,7 +197,7 @@ class LpdClient:
         self._job_number = job_number
 
     def queue_state(self, endpoint: DeviceEndpoint, queue: str, *, long_format: bool) -> str:
-        """Return the queue-state text; command 0x03 (short) or 0x04 (long), prints nothing.
+        """Return the queue-state text; command 0x03 (short) or 0x04 (long); sends no print data.
 
         Args:
             endpoint: The print server.
