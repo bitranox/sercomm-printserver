@@ -1,8 +1,9 @@
 {
-  "_comment": "Test device for development and integration tests. Copy to test-device.json (gitignored) and fill in your own device. Not read by the application yet.",
+  "_comment": "Test device for development and E2E tests. Copy to test-device.json (gitignored) and fill in your own device. E2E tests run only with SERCOMM_E2E=1 and pytest -m device. gateway = value the E2E IP test leaves on the device, gateway_found = value found before.",
   "host": "192.0.2.52",
   "netmask": "255.255.255.0",
   "gateway": "192.0.2.1",
+  "gateway_found": "192.0.2.5",
   "mac": "00:c0:02:12:34:56",
   "default_name": "SC123456",
   "box_name": "PS_EXAMPLE",
@@ -12,5 +13,12 @@
     "P1": "parallel",
     "P2": "parallel",
     "SP": "serial"
+  },
+  "e2e": {
+    "free_ip_candidates": [
+      "192.0.2.240",
+      "192.0.2.241",
+      "192.0.2.242"
+    ]
   }
 }
