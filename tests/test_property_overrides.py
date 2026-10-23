@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from bitranox_template_py_cli.adapters.config.overrides import (
+from sercomm_printserver.adapters.config.overrides import (
     coerce_value,
     parse_override,
 )

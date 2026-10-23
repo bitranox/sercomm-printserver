@@ -16,9 +16,9 @@ import click
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli.adapters.cli.main import main
-from bitranox_template_py_cli.adapters.memory.email import EmailSpy
-from bitranox_template_py_cli.composition import AppServices, build_testing
+from sercomm_printserver.adapters.cli.main import main
+from sercomm_printserver.adapters.memory.email import EmailSpy
+from sercomm_printserver.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable

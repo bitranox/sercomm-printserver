@@ -22,15 +22,15 @@ from btx_lib_mail import ConfMail
 from lib_layered_config import Config
 from pydantic import ValidationError
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters.cli.main import main
-from bitranox_template_py_cli.adapters.email.config import (
+from sercomm_printserver import __init__conf__
+from sercomm_printserver.adapters.cli.main import main
+from sercomm_printserver.adapters.email.config import (
     FILE_KEY_TO_FIELD,
     EmailConfig,
     describe_validation_error,
     load_email_config_from_dict,
 )
-from bitranox_template_py_cli.composition import AppServices, build_production, build_testing
+from sercomm_printserver.composition import AppServices, build_production, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable

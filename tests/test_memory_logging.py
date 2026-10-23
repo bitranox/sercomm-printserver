@@ -19,16 +19,16 @@ import lib_log_rich.runtime
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli.adapters import cli as cli_mod
-from bitranox_template_py_cli.adapters.logging.setup import init_logging
-from bitranox_template_py_cli.composition import build_testing
+from sercomm_printserver.adapters import cli as cli_mod
+from sercomm_printserver.adapters.logging.setup import init_logging
+from sercomm_printserver.composition import build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from click.testing import CliRunner
 
-    from bitranox_template_py_cli.composition import AppServices
+    from sercomm_printserver.composition import AppServices
 
 
 @pytest.mark.os_agnostic

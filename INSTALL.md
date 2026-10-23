@@ -2,7 +2,7 @@
 
 > The CLI stack uses `rich-click`, which bundles `rich` styling on top of click-style ergonomics.
 
-This guide collects every supported method to install `bitranox_template_py_cli`, including
+This guide collects every supported method to install `sercomm_printserver`, including
 isolated environments and system package managers. Pick the option that matches your workflow.
 
 
@@ -30,24 +30,24 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ## One-shot run via uvx (no install needed)
 
 ```bash
-uvx bitranox_template_py_cli@latest --help
+uvx sercomm_printserver@latest --help
 ```
 
 ## Persistent install as CLI tool
 
 ```bash
 # install the CLI tool (isolated environment, added to PATH)
-uv tool install bitranox_template_py_cli
+uv tool install sercomm_printserver
 
 # upgrade to latest
-uv tool upgrade bitranox_template_py_cli
+uv tool upgrade sercomm_printserver
 ```
 
 ## Install as project dependency
 
 ```bash
 uv venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-uv pip install bitranox_template_py_cli
+uv pip install sercomm_printserver
 ```
 
 ## Verify installation
@@ -55,7 +55,7 @@ uv pip install bitranox_template_py_cli
 After any install method, confirm the CLI is available:
 
 ```bash
-bitranox-template-py-cli --version
+sercomm-printserver --version
 ```
 
 ---
@@ -67,9 +67,9 @@ bitranox-template-py-cli --version
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # install from PyPI
-pip install bitranox_template_py_cli
+pip install sercomm_printserver
 # optional install from GitHub
-pip install "git+https://github.com/bitranox/bitranox_template_py_cli"
+pip install "git+https://github.com/bitranox/sercomm_printserver"
 # optional development install from local
 pip install -e ".[dev]"
 # optional install from local runtime only:
@@ -80,9 +80,9 @@ pip install .
 
 ```bash
 # install from PyPI
-pip install --user bitranox_template_py_cli
+pip install --user sercomm_printserver
 # optional install from GitHub
-pip install --user "git+https://github.com/bitranox/bitranox_template_py_cli"
+pip install --user "git+https://github.com/bitranox/sercomm_printserver"
 # optional install from local
 pip install --user .
 ```
@@ -98,45 +98,45 @@ python -m pip install pipx
 # optional install pipx via apt
 sudo apt install pipx
 # install via pipx from PyPI
-pipx install bitranox_template_py_cli
+pipx install sercomm_printserver
 # optional install via pipx from GitHub
-pipx install "git+https://github.com/bitranox/bitranox_template_py_cli"
+pipx install "git+https://github.com/bitranox/sercomm_printserver"
 # optional install from local
 pipx install .
-pipx upgrade bitranox_template_py_cli
+pipx upgrade sercomm_printserver
 # install from Git tag
-pipx install "git+https://github.com/bitranox/bitranox_template_py_cli@v1.1.0"
+pipx install "git+https://github.com/bitranox/sercomm_printserver@v1.1.0"
 ```
 
 ## From Build Artifacts
 
 ```bash
 python -m build
-pip install dist/bitranox_template_py_cli-*.whl
-pip install dist/bitranox_template_py_cli-*.tar.gz   # sdist
+pip install dist/sercomm_printserver-*.whl
+pip install dist/sercomm_printserver-*.tar.gz   # sdist
 ```
 
 ## Poetry or PDM Managed Environments
 
 ```bash
 # Poetry
-poetry add bitranox_template_py_cli     # as dependency
+poetry add sercomm_printserver     # as dependency
 poetry install                          # for local dev
 
 # PDM
-pdm add bitranox_template_py_cli
+pdm add sercomm_printserver
 pdm install
 ```
 
 ## Install Directly from Git
 
 ```bash
-pip install "git+https://github.com/bitranox/bitranox_template_py_cli"
+pip install "git+https://github.com/bitranox/sercomm_printserver"
 ```
 
 ## System Package Managers (Optional Distribution Channels)
 
 - Use [fpm](https://fpm.readthedocs.io/) to repackage the Python wheel into `.deb` or `.rpm` for distribution via `apt` or `yum`/`dnf`.
 
-All methods register both the `bitranox_template_py_cli` and
-`bitranox-template-py-cli` commands on your PATH.
+All methods register both the `sercomm_printserver` and
+`sercomm-printserver` commands on your PATH.
