@@ -1,19 +1,28 @@
-# sercomm_printserver
+# sercomm-printserver
 
 <!-- Badges -->
-[![CI](https://github.com/bitranox/sercomm_printserver/actions/workflows/default_cicd_public.yml/badge.svg)](https://github.com/bitranox/sercomm_printserver/actions/workflows/default_cicd_public.yml)
-[![CodeQL](https://github.com/bitranox/sercomm_printserver/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitranox/sercomm_printserver/actions/workflows/codeql.yml)
+[![CI](https://github.com/bitranox/sercomm-printserver/actions/workflows/default_cicd_public.yml/badge.svg)](https://github.com/bitranox/sercomm-printserver/actions/workflows/default_cicd_public.yml)
+[![CodeQL](https://github.com/bitranox/sercomm-printserver/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitranox/sercomm-printserver/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Open in Codespaces](https://img.shields.io/badge/Codespaces-Open-blue?logo=github&logoColor=white&style=flat-square)](https://codespaces.new/bitranox/sercomm_printserver?quickstart=1)
-[![PyPI](https://img.shields.io/pypi/v/sercomm_printserver.svg)](https://pypi.org/project/sercomm_printserver/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/sercomm_printserver.svg)](https://pypi.org/project/sercomm_printserver/)
+[![Open in Codespaces](https://img.shields.io/badge/Codespaces-Open-blue?logo=github&logoColor=white&style=flat-square)](https://codespaces.new/bitranox/sercomm-printserver?quickstart=1)
+[![PyPI](https://img.shields.io/pypi/v/sercomm-printserver.svg)](https://pypi.org/project/sercomm-printserver/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/sercomm-printserver.svg)](https://pypi.org/project/sercomm-printserver/)
 [![Code Style: Ruff](https://img.shields.io/badge/Code%20Style-Ruff-46A3FF?logo=ruff&labelColor=000)](https://docs.astral.sh/ruff/)
-[![codecov](https://codecov.io/gh/bitranox/sercomm_printserver/graph/badge.svg?token=UFBaUDIgRk)](https://codecov.io/gh/bitranox/sercomm_printserver)
-[![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/sercomm_printserver)
+[![codecov](https://codecov.io/gh/bitranox/sercomm-printserver/graph/badge.svg)](https://codecov.io/gh/bitranox/sercomm-printserver)
 [![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 
 
-`sercomm_printserver` is a template CLI application demonstrating configuration management and structured logging. It showcases rich-click for ergonomics and lib_cli_exit_tools for exits, providing a solid foundation for building CLI applications.
+`sercomm-printserver` will be a command-line tool and Python library for the SerComm family of
+network print servers: the SerComm PS301 and its OEM variants sold by TRENDnet, Linksys,
+Netgear, Perle and others, with two parallel ports plus one serial port or a single parallel
+port. They are configured over FTP through virtual files (`CONFIG`, `PSINF`, `RESET`) and
+print over LPD and raw sockets. What is known about the devices so far is in
+[docs/Manual-PS301.md](docs/Manual-PS301.md) (German).
+
+Status: early. The code base is still the bitranox CLI template it was created from; the
+print-server client is not written yet.
+
+The template provides:
 - CLI entry point styled with rich-click (rich output + click ergonomics).
 - Layered configuration system with lib_layered_config (defaults -> app -> host -> user -> .env -> env).
   The `.env` is the first one found from the current directory upward; when there is none,
@@ -67,7 +76,7 @@ uvx sercomm_printserver@latest --help
 # One-time install from PyPI (isolated environment, added to PATH)
 uv tool install sercomm-printserver
 # or from the git repository
-uv tool install --from "git+https://github.com/bitranox/sercomm_printserver.git" sercomm-printserver
+uv tool install --from "git+https://github.com/bitranox/sercomm-printserver.git" sercomm-printserver
 # Pick the interpreter explicitly if needed, e.g. --python 3.14
 # Update (requires network)
 uv tool upgrade sercomm-printserver
@@ -105,7 +114,7 @@ than 7 days, transitive ones included), or to run the exact tree our CI tests:
 
 ```bash
 uv tool install --exclude-newer "7 days" sercomm_printserver
-git clone https://github.com/bitranox/sercomm_printserver.git && cd sercomm_printserver && uv sync --locked && uv run sercomm_printserver --help
+git clone https://github.com/bitranox/sercomm-printserver.git && cd sercomm-printserver && uv sync --locked && uv run sercomm_printserver --help
 ```
 
 If you depend on sercomm_printserver in your own project, give that project the same cooldown (7 days here, as

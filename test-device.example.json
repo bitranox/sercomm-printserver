@@ -1,0 +1,16 @@
+{
+  "_comment": "Test device for development and integration tests. Copy to test-device.json (gitignored) and fill in your own device. Not read by the application yet.",
+  "host": "192.0.2.52",
+  "netmask": "255.255.255.0",
+  "gateway": "192.0.2.1",
+  "mac": "00:c0:02:12:34:56",
+  "default_name": "SC123456",
+  "box_name": "PS_EXAMPLE",
+  "hardware_id": "024010XXXX",
+  "firmware": "6022",
+  "ports": {
+    "P1": "parallel",
+    "P2": "parallel",
+    "SP": "serial"
+  }
+}

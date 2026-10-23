@@ -569,9 +569,7 @@ def test_when_config_generate_examples_is_invoked_it_creates_files(
     ) -> list[Path]:
         return [created_file]
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -598,9 +596,7 @@ def test_when_config_generate_examples_has_no_files_it_informs_user(
     ) -> list[Path]:
         return []
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -643,9 +639,7 @@ def test_when_config_generate_examples_with_force_it_passes_force_flag(
         captured_force.append(force)
         return [created_file]
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -675,9 +669,7 @@ def test_when_config_generate_examples_without_force_it_defaults_to_false(
         captured_force.append(force)
         return [created_file]
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -703,9 +695,7 @@ def test_when_config_generate_examples_encounters_error_it_exits_with_general_er
     ) -> list[Path]:
         raise OSError("Disk full")
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -737,9 +727,7 @@ def test_when_config_generate_examples_it_passes_correct_metadata(
         captured_params.append({"slug": slug, "vendor": vendor, "app": app, "destination": str(destination)})
         return [created_file]
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -774,9 +762,7 @@ def test_when_config_generate_examples_creates_multiple_files_it_lists_all(
     ) -> list[Path]:
         return [file1, file2]
 
-    monkeypatch.setattr(
-        "sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("sercomm_printserver.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,

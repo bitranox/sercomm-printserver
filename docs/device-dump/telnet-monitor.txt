@@ -1,0 +1,25 @@
+=== monitor ===
+monitor
+
+(P1)STATE: Printing
+TYPE: Parallel
+PRINTER STATUS: Offline
+BYTES SERVICED:          0
+OCCUPIED BY: Direct Socket
+
+(P2)STATE: Printing
+TYPE: Parallel
+PRINTER STATUS: Offline
+BYTES SERVICED:          0
+OCCUPIED BY: Direct Socket
+
+(SP)STATE: Printing
+TYPE: Serial
+PRINTER STATUS: On-Line
+BYTES SERVICED:          0
+OCCUPIED BY: Direct Socket
+
+
+=== exit ===
+exit
+
