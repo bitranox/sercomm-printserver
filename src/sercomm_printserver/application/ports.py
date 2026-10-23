@@ -171,6 +171,27 @@ class UptimePort(Protocol):
         ...
 
 
+class NeighborTable(Protocol):
+    """Static ARP entries on this host: the means of the "ARP trick".
+
+    The print server answers packets sent to ANY address this host maps to its MAC (measured),
+    so a static entry reaches a device whose own address is unknown or unusable. Setting and
+    removing entries needs administrator rights.
+    """
+
+    def set_static(self, ip: str, mac: str) -> None:
+        """Map ``ip`` to ``mac`` permanently on the interface whose network holds ``ip``."""
+        ...
+
+    def remove(self, ip: str) -> bool:
+        """Remove the entry for ``ip``; True when there was one."""
+        ...
+
+    def mac_of(self, ip: str) -> str | None:
+        """Return the MAC this host currently maps ``ip`` to, or None."""
+        ...
+
+
 class OpenPrintServer(Protocol):
     """Return a :class:`~.print_server.PrintServer` for ``endpoint`` wired to real adapters."""
 
@@ -206,6 +227,7 @@ __all__ = [
     "HostScanner",
     "InitLogging",
     "LpdPort",
+    "NeighborTable",
     "OpenPrintServer",
     "RawPort",
     "TelnetPort",
