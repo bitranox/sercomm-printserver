@@ -32,10 +32,10 @@ from sercomm_printserver.adapters.neighbors import IpscoutNeighborTable
 from sercomm_printserver.adapters.tftp import TftpClient
 from sercomm_printserver.application import arp_trick
 from sercomm_printserver.composition import open_print_server
-from sercomm_printserver.domain.config_codec import parse_config, render_config, with_value
+from sercomm_printserver.domain.config_codec import find_line, parse_config, render_config, with_value
 from sercomm_printserver.domain.device_files import ReadableFile
 from sercomm_printserver.domain.endpoint import DeviceEndpoint
-from sercomm_printserver.domain.port_status import PortType
+from sercomm_printserver.domain.port_status import PortState, PortType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -46,6 +46,8 @@ pytestmark = pytest.mark.device
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SNAPSHOTS = _ROOT / ".e2e"
+#: How long the monitor may take to show a RAW job's port as busy (measured: under 2 s).
+_RAW_SETTLE_SECONDS = 10.0
 
 
 class _E2eSettings(BaseModel):
@@ -176,6 +178,30 @@ def test_every_port_reports_its_status(server: PrintServer, device: _TestDevice)
     assert {port.port: port.type for port in ports} == {
         name: PortType.SERIAL if kind == "serial" else PortType.PARALLEL for name, kind in device.ports.items()
     }
+
+
+def _ports_on_direct_socket(server: PrintServer) -> set[str]:
+    return {port.port for port in server.status() if port.occupied_by == "Direct Socket"}
+
+
+def test_raw_data_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer) -> None:
+    # The RAW ports belong to the logical printers L1..L3 and follow each one's routing. With no
+    # printer attached the data stays queued and the port reads "Printing / Direct Socket" until
+    # the restart in the finally clause clears it.
+    routed_to = find_line(parse_config(server.read_config_text()), "L1_PROUT").value
+    if any(port.state is not PortState.IDLE for port in server.status()):
+        pytest.skip("a port is busy already; this test needs every port idle")
+    busy: set[str] = set()
+    try:
+        server.print_raw(1, b"sercomm-printserver E2E RAW probe\r\n")
+        deadline = time.monotonic() + _RAW_SETTLE_SECONDS
+        while not busy and time.monotonic() < deadline:
+            busy = _ports_on_direct_socket(server)
+    finally:
+        server.reset(wait=True)
+
+    assert busy == {routed_to}
+    assert all(port.state is PortState.IDLE for port in server.status())
 
 
 def test_the_configuration_renders_back_byte_for_byte(server: PrintServer) -> None:

@@ -195,8 +195,9 @@ cat page.prn | sercomm-printserver print lpd L2 -
 sercomm-printserver print raw 1 page.prn                # RAW port of logical printer 1
 ```
 
-Prefer LPD: which port a queue feeds is in the device's configuration. Never connect to a RAW port
-without a job; even an empty connection keeps the port busy for minutes.
+Only L1..L3 have a RAW port, and RAW data goes wherever that logical printer is routed, just like
+an LPD job. Data that no printer takes stays queued and keeps the port busy until a restart
+(`reset --yes`), so never send a test byte to a RAW port.
 
 ### A device without a usable address
 

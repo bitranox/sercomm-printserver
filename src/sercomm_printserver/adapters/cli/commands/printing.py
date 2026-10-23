@@ -73,7 +73,7 @@ def cli_print_lpd(
 
 
 @cli_print.command("raw", context_settings=CLICK_CONTEXT_SETTINGS)
-@argument("printer", type=click.IntRange(min=1, max=8))
+@argument("printer", type=click.IntRange(min=1, max=3))
 @argument("source", type=click.File("rb"))
 @device_options
 @click.pass_context
@@ -87,7 +87,7 @@ def cli_print_raw(
     as_json: bool,
     as_json_bare: bool,
 ) -> None:
-    """Send SOURCE (a file, or - for stdin) to the RAW port of logical printer PRINTER (1..8)."""
+    """Send SOURCE (a file, or - for stdin) to the RAW port of logical printer PRINTER (1..3)."""
 
     def work(server: PrintServer) -> PrintReport:
         data = source.read()

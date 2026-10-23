@@ -453,13 +453,13 @@ Profile directories are **separate namespaces**. Configuration deployed with a p
 The `[device]` section (shipped in `config.d/50-device.toml`) names the SerComm print server the
 CLI talks to. Every key ships empty or at its default, so nothing is contacted until a host is set.
 
-| Key             | Type             | Default | Environment variable                          | Meaning                                                                                 |
-|-----------------|------------------|---------|-----------------------------------------------|-----------------------------------------------------------------------------------------|
-| `host`          | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__HOST`          | IPv4 address or host name of the print server                                           |
-| `login`         | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first"                         |
-| `password`      | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`             |
-| `timeout`       | float, > 0       | `10.0`  | `SERCOMM_PRINTSERVER___DEVICE__TIMEOUT`       | Network timeout for one operation, in seconds                                           |
-| `raw_port_base` | integer, 1-65535 | `9100`  | `SERCOMM_PRINTSERVER___DEVICE__RAW_PORT_BASE` | RAW (direct socket) port of logical printer L1; printer Ln uses `raw_port_base + n - 1` |
+| Key             | Type             | Default | Environment variable                          | Meaning                                                                                      |
+|-----------------|------------------|---------|-----------------------------------------------|----------------------------------------------------------------------------------------------|
+| `host`          | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__HOST`          | IPv4 address or host name of the print server                                                |
+| `login`         | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first"                              |
+| `password`      | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`                  |
+| `timeout`       | float, > 0       | `10.0`  | `SERCOMM_PRINTSERVER___DEVICE__TIMEOUT`       | Network timeout for one operation, in seconds                                                |
+| `raw_port_base` | integer, 1-65535 | `9100`  | `SERCOMM_PRINTSERVER___DEVICE__RAW_PORT_BASE` | RAW (direct socket) port of logical printer L1; L2 and L3 use the next two, L4..L8 have none |
 
 In a `.env` file the prefix is dropped:
 

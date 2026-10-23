@@ -75,20 +75,21 @@ A device has two parallel ports `P1`, `P2` and a serial `SP` (one-port models: `
 LPD queues are `L1`..`L8` (one-port models `L1`..`L3`); which port a queue feeds is in the
 device's CONFIG - on a factory PS301 `L1`/`L4`/`L7` -> P1, `L2`/`L5`/`L8` -> P2, `L3`/`L6` -> SP,
 and the queue `lp` -> P1. Read it instead of assuming: `device-config get L3_PROUT` answers
-`SP` (keys `L1_PROUT`..`L8_PROUT`). What a job does when no printer is attached is not
-measured yet.
+`SP` (keys `L1_PROUT`..`L8_PROUT`).
 
-RAW printing uses port `raw_port_base + n - 1` for logical printer `n` (`[device]
-raw_port_base`, default 9100). A PS301 with firmware 6022 opens only 9100-9102; the vendor
-manuals name 4010/4020/4030 instead. Which RAW port reaches which physical port is not verified:
-**prefer `print lpd`**, whose queue mapping the CONFIG states.
+RAW ports belong to the logical printers `L1`..`L3` only: `print raw 1|2|3` uses port
+`raw_port_base` + 0/1/2 (`[device] raw_port_base`, default 9100), and the data goes wherever
+that printer is routed, exactly like an LPD job (measured on a PS301, firmware 6022: with
+`L1_PROUT=P2`, port 9100 fed P2). That firmware also opens the vendor's DSI sockets
+4010/4020/4030 for the same three printers; they step by 10, so `raw_port_base` cannot express
+them. `print raw 4` and above is refused (exit 2). Prefer `print lpd`, which reaches all eight.
 
-**Never open a RAW port without sending a job** - no port probe, no `echo > /dev/tcp/H/9100`,
-no empty test print: a bare connection or a lone newline keeps the port busy ("Printing /
-Direct Socket") for minutes. `print raw` refuses empty data (exit 22) for that reason. To check
-a port, read `status`: each port's state (`Idle` or `Printing`), its type and the printer
-status the device reports (`Offline` with no printer attached or switched off). Without a
-printer, `status` is as far as a check can go.
+**Never send a test byte to a RAW port** - no port probe, no `echo > /dev/tcp/H/9100`, no empty
+test print. Data that no printer takes stays queued: the port reads "Printing / Direct Socket"
+until the device restarts (`reset --yes` clears it). `print raw` refuses empty data (exit 22).
+To check a port, read `status`: each port's state (`Idle` or `Printing`), its type and the
+printer status the device reports (`Offline` with no printer attached or switched off).
+Without a printer, `status` is as far as a check can go.
 
 ## Passwords and logins
 

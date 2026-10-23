@@ -346,12 +346,15 @@ def test_the_raw_port_base_is_configurable() -> None:
     device = _device()
     ports = DevicePorts(ftp=device, telnet=device, tftp=FakeTftp(device), lpd=device, raw=device, uptime=device)
 
-    PrintServer(_ENDPOINT, ports, raw_port_base=4010).print_raw(1, b"x")
+    PrintServer(_ENDPOINT, ports, raw_port_base=9200).print_raw(2, b"x")
 
-    assert device.raw_sends == [(4010, b"x")]
+    assert device.raw_sends == [(9201, b"x")]
 
 
-@pytest.mark.parametrize(("printer", "data", "message"), [(1, b"", "without data"), (0, b"x", "has no RAW port")])
+@pytest.mark.parametrize(
+    ("printer", "data", "message"),
+    [(1, b"", "without data"), (0, b"x", "has no RAW port"), (4, b"x", "only L1..L3 have one")],
+)
 def test_raw_printing_refuses_before_connecting(printer: int, data: bytes, message: str) -> None:
     device = _device()
 

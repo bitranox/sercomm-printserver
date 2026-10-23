@@ -2,14 +2,17 @@
 
 Device behaviour this adapter is shaped by (measured on a PS301, firmware 6022):
 
-* A bare TCP connect to a RAW port, with nothing sent, leaves that port in the state
-  ``Printing / Direct Socket`` for minutes and blocks every other job. So ``send`` refuses
-  empty data before it connects, and never opens a connection it does not write to.
+* Data sent while no printer takes it stays queued: the port reads ``Printing / Direct
+  Socket`` until a restart and blocks every other job. The same state was once seen after a
+  port scan; a single connect closed at once left the ports idle, so the cause of that one is
+  open. ``send`` therefore refuses empty data before it connects, and never opens a
+  connection it does not write to.
 * The end of a job is the end of the stream. The adapter half-closes its side
   (``shutdown(SHUT_WR)``) after the last byte, then waits for the device to close, so the
   device sees a clean end of job rather than a dropped connection.
-* Which port maps to which physical port differs by firmware (9100-9102 on this device,
-  4010/4020/4030 in the vendor manuals), so the caller names the port.
+* A RAW port belongs to a logical printer, not to a physical port: 9100-9102 and the vendor's
+  DSI sockets 4010/4020/4030 both reach L1..L3, and the data goes wherever that printer is
+  routed (``Ln_PROUT``). The caller names the port.
 
 A device that keeps its side open after the job is not an error: the data was delivered, so a
 timeout while waiting for its close returns normally.
@@ -109,7 +112,7 @@ class RawPrinter:
         Args:
             endpoint: The device; ``host`` and ``timeout`` are used. ``timeout`` bounds the
                 connect, each send and the wait for the device's close.
-            port: The RAW TCP port (9100-9102 or 4010/4020/4030, depending on firmware).
+            port: The RAW TCP port (9100-9102 or 4010/4020/4030 for L1..L3).
             data: The print data, sent unchanged.
 
         Raises:

@@ -44,6 +44,9 @@ _T = TypeVar("_T")
 #: The firmware stores at most 19 bytes of password (vendor manual: ``put PASSWORD``).
 _PASSWORD_MAX: Final = 19
 _RAW_LAST_PORT: Final = 65535
+#: Only L1..L3 have a RAW port (measured on a PS301, firmware 6022: 9103 is closed); the vendor
+#: manuals give the same three, as DSI sockets 4010/4020/4030.
+_RAW_LAST_PRINTER: Final = 3
 #: Parameters the device reads back masked with asterisks, so a read-back cannot verify them.
 _READ_BACK_MASKED: Final = frozenset({cat.mail_line(2)})
 #: How long a restart may take before waiting for it is given up.
@@ -86,8 +89,8 @@ class PrintServer:
     Args:
         endpoint: Address, credentials and timeout.
         ports: The protocol adapters.
-        raw_port_base: TCP port of the RAW print port of logical printer ``L1``; ``Ln`` uses
-            ``raw_port_base + n - 1``.
+        raw_port_base: TCP port of the RAW print port of logical printer ``L1``; ``L2`` and
+            ``L3`` use the next two ports.
         sleep: Pause between checks while waiting for a restart (injected so tests do not wait).
         clock: Monotonic clock for that wait's deadline.
     """
@@ -243,16 +246,20 @@ class PrintServer:
         self._ports.lpd.submit(self._endpoint, queue, job)
 
     def print_raw(self, logical_printer: int, data: bytes) -> None:
-        """Send ``data`` to the RAW port of logical printer ``logical_printer`` (1-based).
+        """Send ``data`` to the RAW port of logical printer ``logical_printer`` (1-3).
 
-        A bare connect occupies the port for minutes on this firmware, so empty data is refused
-        before anything is sent.
+        The RAW port belongs to the logical printer, not to a physical port: the data goes to
+        whichever physical port the printer is routed to (``Ln_PROUT``), as an LPD job would.
+        A job stays queued as "Printing / Direct Socket" while no printer takes it, so empty data
+        is refused before anything is sent.
         """
         if not data:
             raise ValueError("refusing to open a RAW print port without data to send")
         port = self._raw_port_base + logical_printer - 1
         if logical_printer < 1 or port > _RAW_LAST_PORT:
             raise ValueError(f"logical printer {logical_printer} has no RAW port")
+        if logical_printer > _RAW_LAST_PRINTER:
+            raise ValueError(f"logical printer {logical_printer} has no RAW port: only L1..L3 have one")
         self._ports.raw.send(self._endpoint, port, data)
 
     # ------------------------------------------------------------------ helpers

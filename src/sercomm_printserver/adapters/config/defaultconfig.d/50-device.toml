@@ -54,9 +54,10 @@ password = ""
 # Environment Variable: SERCOMM_PRINTSERVER___DEVICE__TIMEOUT=10.0
 timeout = 10.0
 
-# Purpose: TCP port of the RAW (direct socket) print port of logical printer L1.
-#          Logical printer Ln uses raw_port_base + n - 1. The PS301 has 9100-9102
-#          open; the vendor manuals name 4010/4020/4030 instead.
+# Purpose: TCP port of the RAW (direct socket) print port of logical printer L1;
+#          L2 and L3 use the next two ports, L4..L8 have none. The PS301 opens
+#          9100-9102 and also the vendor's 4010/4020/4030, which step by 10 and so
+#          cannot be expressed as a base here.
 # Type: integer, 1-65535
 # Default: 9100
 # Environment Variable: SERCOMM_PRINTSERVER___DEVICE__RAW_PORT_BASE=9100

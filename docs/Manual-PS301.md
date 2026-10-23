@@ -48,7 +48,8 @@ Aus den CONFIG-Tabellen der Firmware-Images und den Unix-Handbüchern:
 - Anzahl logischer Drucker: siehe oben, aus CONFIG ableiten.
 - RAW/DSI-Ports: Alle Handbücher und Perle-KB q163 nennen fest 4010/4020/4030 (nur L1..L3);
   in den untersuchten Firmware-Images taucht 9100 nicht auf. Dieses Gerät (FW 6022) hat
-  aber 9100-9102 offen. Die Ports müssen also je Gerät ermittelt werden.
+  beide Reihen offen, 9100-9102 und 4010/4020/4030 (gemessen 2026-10-24). Bei anderer
+  Firmware kann eine Reihe fehlen.
 - Schlüssel nur bei Mehrport-Modellen: LPT2MODE/LPT3MODE, NR_NAME2.., AP_TYPE2..,
   AP_PCOMM2.. (beim EPSX3 trägt Port 3 die Endung 4).
 - Schlüssel nur bei manchen Firmware-Ständen:
@@ -106,9 +107,15 @@ Anschlüsse: P1 und P2 parallel, SP seriell (9600 8N1, Handshake BOTH).
 
 Die LPD-Queue `lp` landet ebenfalls auf P1.
 
-Offene Ports: 21 (FTP), 23 (Telnet), 515 (LPD), 9100-9102 (RAW / Direct Socket).
-Geschlossen: 80, 139, 443, 631. Die Zuordnung 9100 -> P1, 9101 -> P2, 9102 -> SP ist
-aus der Reihenfolge vermutet und nicht geprüft.
+Offene Ports: 21 (FTP), 23 (Telnet), 69/udp (TFTP), 515 (LPD), 9100-9102 und
+4010/4020/4030 (RAW / Direct Socket). Geschlossen: 80, 139, 443, 631, 9103.
+
+Die RAW-Ports gehören zu den logischen Druckern, nicht zu den Anschlüssen: 9100 und 4010
+-> L1, 9101 und 4020 -> L2, 9102 und 4030 -> L3. Die Daten gehen an den Anschluss, auf
+den der logische Drucker zeigt (`Ln_PROUT`). L4..L8 haben keinen RAW-Port. Gemessen
+2026-10-24 ohne Drucker, über den Anschluss, der danach auf "Direct Socket" stand: ab
+Werk landeten 9100/4010 auf P1, 9101/4020 auf P2 und 9102/4030 auf SP; mit
+`L1_PROUT=P2` landeten 9100 und 4010 auf P2.
 
 ## Verwaltung
 
@@ -160,7 +167,9 @@ Laut TE-310-Handbuch funktionieren die Aktionsdateien auch per TFTP, und zwar oh
 
 Gemessen auf diesem Gerät (FW 6022): `CONFIG` und `PSINF` lassen sich per TFTP ohne Login
 lesen (identisch mit FTP). `GET PASSRESET` per TFTP lehnt es mit TFTP-Fehler 4
-"Read(Get) Command Not Supportted" ab. `RESET` und `DEFAULTC` per TFTP sind nicht geprüft.
+"Read(Get) Command Not Supportted" ab. `GET RESET` per TFTP startet das Gerät neu: es antwortet mit einem leeren DATA-Block,
+und die SNMP-Uptime fällt nach rund 6 s auf 0 (gemessen 2026-10-24, sechsmal).
+`DEFAULTC` per TFTP ist nicht geprüft.
 
 ### Werkseinstellungen, wenn IP oder Passwort unbekannt sind
 
@@ -175,7 +184,7 @@ Für Firmware über 5000 (dieses Gerät: 6022), nach TE-310-Handbuch und Perle-K
 
 Mit diesem Werkzeug: `sercomm-printserver arp reach | assign-ip | factory-reset --mac MAC --ip
 FREIE_IP` (als root bzw. Administrator). Es setzt den statischen ARP-Eintrag selbst, spricht das
-Gerät per FTP statt TFTP an (TFTP lehnt Aktionsdateien ab, siehe oben) und entfernt den Eintrag
+Gerät per FTP statt TFTP an (TFTP lehnt `PASSRESET` ab und meldet nichts zurück, siehe oben) und entfernt den Eintrag
 danach wieder. Gemessen: `arp reach` erreicht das Gerät über eine geliehene freie Adresse im
 eigenen Subnetz und liest PSINF; danach steht für die Adresse kein statischer Eintrag mehr.
 
@@ -223,10 +232,12 @@ Anhang B.
   - CUPS: `lpd://192.0.2.52/L1`
   - Windows: Standard-TCP/IP-Port mit LPR, Warteschlange `L1`
   - Kommandozeile: `lpr -H 192.0.2.52 -P L1 datei`
-- RAW / Direct Socket: Ports 9100-9102 sind offen. TRENDnet und Perle nennen für DSI
-  stattdessen die Sockets 4010/4020/4030 (nur L1..L3); welche Variante diese Firmware
-  nutzt, ist nicht geprüft. Ein bloßer TCP-Connect kann den Port als "Direct Socket"
-  belegen, daher nicht leichtfertig testen.
+- RAW / Direct Socket: 9100/9101/9102 oder 4010/4020/4030 für L1/L2/L3 (beide gemessen,
+  siehe oben). Daten, die kein Drucker abnimmt, bleiben liegen: der Anschluss steht auf
+  "Printing / Direct Socket", bis das Gerät neu startet. Ein einzelner Connect, sofort
+  wieder geschlossen, ließ die Anschlüsse auf Idle (gemessen auf 4010-4030); nach einem
+  Portscan standen sie dagegen minutenlang auf "Direct Socket". Daher nicht leichtfertig
+  testen.
 - Hinweis aus dem Handbuch: Bei LPD druckt das Gerät die Datendatei sofort und ignoriert
   Optionen aus der Steuerdatei.
 

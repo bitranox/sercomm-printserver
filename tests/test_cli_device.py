@@ -251,6 +251,15 @@ def test_print_raw_reads_stdin_and_picks_the_printers_port(
     assert device.raw_sends == [(9102, b"\x1bE")]
 
 
+def test_print_raw_to_a_logical_printer_without_a_raw_port_is_a_usage_error(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    result = cli_runner.invoke(cli_root.cli, ["print", "raw", "4", "-", *_HOST], obj=services, input=b"\x1bE")
+
+    assert result.exit_code == 2
+    assert device.raw_sends == []
+
+
 def test_print_raw_with_empty_input_sends_nothing_and_exits_22(
     cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
 ) -> None:

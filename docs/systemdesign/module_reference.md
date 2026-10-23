@@ -150,7 +150,7 @@ Root options: `--version`, `--traceback/--no-traceback`, `--profile NAME`,
 | `store-ip`                 | Store the current address as static IP (SETIP)                       |
 | `factory-default`          | Restore factory settings; the device leaves the network (IP 0.0.0.0) |
 | `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                  |
-| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..8         |
+| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..3         |
 | `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`    |
 | `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there          |
 | `arp factory-reset`        | Restore factory settings of the device behind `--mac`                |
@@ -194,8 +194,8 @@ then spoken to over FTP at the borrowed address, and the entry is removed in eve
 `factory_reset` refuses unless the PSINF default name matches both `--mac` and `--confirm-name`.
 
 **`[device]` defaults** (`adapters/config/defaultconfig.d/50-device.toml`): `host = ""`,
-`login = ""`, `password = ""`, `timeout = 10.0`, `raw_port_base = 9100` (printer Ln uses
-`raw_port_base + n - 1`).
+`login = ""`, `password = ""`, `timeout = 10.0`, `raw_port_base = 9100` (L2 and L3 use the next
+two ports; L4..L8 have no RAW port).
 
 ## Testing Approach
 
@@ -216,7 +216,9 @@ All under `tests/`:
 
 ## Known Limitations
 
-* The PS301 refuses action files over TFTP, so `PrintServer` triggers actions over FTP.
+* `PrintServer` triggers actions over FTP. The PS301 does take `RESET` over TFTP but refuses
+  `PASSRESET`, and TFTP reports nothing back about the result.
+* `print raw` reaches only L1..L3: the RAW ports belong to those three logical printers.
 * `password clear` works without a login on firmware 6022: a password does not stop anyone on
   the network from clearing it.
 * `password set` accepts at most 19 printable ASCII characters.

@@ -1,10 +1,11 @@
-"""TFTP (RFC 1350) client for the print server's virtual files, read-only.
+"""TFTP (RFC 1350) client for the print server's virtual files: reads and action triggers.
 
 Why it exists: the vendor manual (TE-310 twin) says ``tftp <ip> GET RESET`` restarts the
 device and ``tftp <ip> GET DEFAULTC`` restores factory defaults without any login, and that
 ``CONFIG`` and ``PSINF`` can be read the same way. That is the recovery path when the FTP
-password is unknown. None of it has been measured on a PS301; this firmware may not run a TFTP
-server at all, in which case every call ends in ``DeviceUnavailableError``.
+password is unknown. Measured on a PS301 (firmware 6022): ``CONFIG`` and ``PSINF`` read the
+same as over FTP, ``GET RESET`` restarts the device, ``GET PASSRESET`` is refused with TFTP
+error 4; ``DEFAULTC`` was not tried.
 
 Protocol choices:
 

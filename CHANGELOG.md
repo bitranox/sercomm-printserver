@@ -20,6 +20,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   (exit 13 without).
 - A typed model of the device's CONFIG file, `docs/config-keys.md` with the keys of each model
   and firmware version, and writes that restart the device and wait for it by its SNMP uptime.
+- `print raw` reaches logical printers 1..3, the only ones with a RAW port. Measured on a PS301:
+  9100-9102 and the vendor's 4010/4020/4030 both feed L1..L3 and follow each printer's routing.
 - Python library surface: `open_print_server`, `discover_print_servers`, `PrintServer`,
   `DeviceEndpoint`, `PrintJob`, `arp_trick`, `IpscoutNeighborTable` and the domain exceptions.
 - Claude Code plugin with the `sercomm-printserver` skill.

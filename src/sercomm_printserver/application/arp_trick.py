@@ -2,8 +2,9 @@
 
 The manuals map a new IP to the device's MAC with ``arp -s``, then use TFTP (``get SETIP``,
 ``get DEFAULTC``). Measured on a PS301: the device answers packets to ANY address mapped to
-its MAC, but refuses action files over TFTP. So the trick here keeps the static entry only as
-long as it takes to talk to the device over FTP at the borrowed address:
+its MAC. TFTP carries some action files (``RESET`` restarts it) but refuses ``PASSRESET``,
+and it reports nothing back, so the trick here talks FTP at the borrowed address - the path
+every other change uses - and keeps the static entry only as long as that takes:
 
 * :func:`assign_ip` writes the new address into the device's CONFIG and restarts it there - the
   same verified path as any configuration change - so the device ends with a static IP no
