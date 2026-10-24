@@ -1112,7 +1112,7 @@ wheels = [
 
 [[package]]
 name = "ipscout"
-version = "1.7.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1120,9 +1120,9 @@ dependencies = [
     { name = "rich-click" },
     { name = "rtoml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/b7/0a6906640fd4ecca88b8f2b0e4eb8f0fd03ea69be0d964d0e5432fad31d1/ipscout-1.7.0.tar.gz", hash = "sha256:5900dfd90b0738a98ec907050ec53d9e4ca60a34189c40382620e6788d458f65", size = 268754, upload-time = "2026-10-23T22:23:23.084Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/4c/9b5ebc051a8fe5a4c143be554cb12cae20b46db39b4f1d4578b7767ed8da/ipscout-2.0.0.tar.gz", hash = "sha256:e93183b132d566dab4d25380ae5f0af2bff008992e78a6c63c6f420596d9966f", size = 279584, upload-time = "2026-10-24T11:34:37.519Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/2e/8963d50eb96629fafe48c19736babbc794cf496ef47d861b513b29b8f973/ipscout-1.7.0-py3-none-any.whl", hash = "sha256:f09db71b8b49484763b94036d65794bd1b3cfcd74facc7b2b0b84bf67e135473", size = 188304, upload-time = "2026-10-23T22:23:21.548Z" },
+    { url = "https://files.pythonhosted.org/packages/63/dd/e9de032698c51280d90283bd8208ee77249845b66eda4058da5fbb8bc895/ipscout-2.0.0-py3-none-any.whl", hash = "sha256:d7824820d095499ddefdc7269c210896ef72737ea51ddf310b98a99440b4cad8", size = 194548, upload-time = "2026-10-24T11:34:35.893Z" },
 ]
 
 [[package]]
@@ -2314,7 +2314,7 @@ requires-dist = [
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.13.1" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.5" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
-    { name = "ipscout", specifier = ">=1.7.0" },
+    { name = "ipscout", specifier = ">=2.0.0" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
     { name = "lib-layered-config", specifier = ">=7.3.0" },

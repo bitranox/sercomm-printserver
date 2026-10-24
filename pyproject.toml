@@ -15,7 +15,7 @@ dependencies = [
     "lib_layered_config>=7.3.0",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
-    "ipscout>=1.7.0",
+    "ipscout>=2.0.0",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
