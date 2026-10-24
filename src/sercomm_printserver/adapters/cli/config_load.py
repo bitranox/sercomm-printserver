@@ -10,9 +10,12 @@ failure, and each command that reads the configuration asks for it through
 What the command line itself gets wrong is not a configuration failure: a malformed or
 conflicting ``--set`` or an invalid ``--profile`` name is a usage error (exit 2), checked BEFORE
 loading so that a broken file cannot hide it from a command that does not read the
-configuration.
+configuration. The ``--set`` values are parsed once, there, into a
+:class:`~sercomm_printserver.adapters.config.overrides.ParsedOverrides`, which every later
+reader takes instead of the strings.
 
 Contents:
+    * :func:`parse_command_line` - refuse a bad ``--profile`` or ``--set`` (exit 2), parse ``--set``.
     * :func:`load_config` - load with profile, ``.env`` and ``--set``, or say why not.
     * :func:`start_logging` - start logging; an invalid ``[lib_log_rich]`` value or ``LOG_*``
       variable is a load failure.
@@ -31,7 +34,7 @@ import rich_click as click
 from lib_layered_config import Config, ConfigError
 
 from sercomm_printserver.adapters.config.loader import validate_profile
-from sercomm_printserver.adapters.config.overrides import apply_overrides, nest_overrides
+from sercomm_printserver.adapters.config.overrides import ParsedOverrides, apply_overrides, nest_overrides
 from sercomm_printserver.adapters.logging.setup import InvalidLoggingConfigError
 
 from . import safe_console
@@ -49,18 +52,50 @@ if TYPE_CHECKING:
 _LOAD_ERRORS = (ConfigError, OSError)
 
 
-def _check_command_line(profile: str | None, set_overrides: tuple[str, ...]) -> None:
-    """Refuse a malformed or conflicting ``--set`` or an invalid ``--profile`` name (exit 2)."""
+def _check_profile(profile: str | None) -> None:
+    """Refuse an invalid ``--profile`` name (exit 2)."""
+    if profile is None:
+        return
     try:
-        if profile is not None:
-            validate_profile(profile)
-        nest_overrides(set_overrides)
+        validate_profile(profile)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+
+def parse_command_line(profile: str | None, set_overrides: tuple[str, ...]) -> ParsedOverrides:
+    """Refuse an invalid ``--profile`` name or a malformed or conflicting ``--set``; parse ``--set``.
+
+    The profile is judged first, so a command line wrong in both ways names the profile.
+
+    Args:
+        profile: The root's ``--profile``, or None.
+        set_overrides: The root's ``--set`` strings.
+
+    Returns:
+        The parsed ``--set`` values.
+
+    Raises:
+        click.UsageError: The profile name is invalid, a ``--set`` value is malformed, or two
+            of them conflict (exit 2).
+
+    Example:
+        >>> parsed = parse_command_line(None, ("a.b=1", "a.c.d=x"))
+        >>> dict(parsed.tree), sorted(parsed.keys)
+        ({'a': {'b': 1, 'c': {'d': 'x'}}}, ['a.b', 'a.c.d'])
+        >>> parse_command_line(None, ("nodot",))
+        Traceback (most recent call last):
+        ...
+        click.exceptions.UsageError: Invalid override 'nodot': must contain '='
+    """
+    _check_profile(profile)
+    try:
+        return nest_overrides(set_overrides)
     except ValueError as exc:
         raise click.UsageError(str(exc)) from exc
 
 
 def load_config(
-    services: AppServices, *, profile: str | None, env_file: str | None, set_overrides: tuple[str, ...]
+    services: AppServices, *, profile: str | None, env_file: str | None, set_overrides: ParsedOverrides
 ) -> tuple[Config, Exception | None]:
     """Load the layered configuration, or say why it could not be loaded.
 
@@ -68,25 +103,25 @@ def load_config(
         services: The composition's services; only ``get_config`` is used.
         profile: The profile to load, or None for none.
         env_file: An explicit ``.env`` file, or None to search for one.
-        set_overrides: The ``--set`` values, applied only to a configuration that loaded.
+        set_overrides: The parsed ``--set`` values, applied only to a configuration that loaded.
 
     Returns:
         The configuration and None, or an empty configuration and the exception that says
         why loading failed.
 
     Raises:
-        click.UsageError: A ``--set`` value is malformed, two of them conflict, or the
-            profile name is invalid;
-            that is a command-line error (exit 2), not a configuration one, and it is
-            raised whether or not the configuration would load.
+        click.UsageError: The profile name is invalid; that is a command-line error
+            (exit 2), not a configuration one, and it is raised whether or not the
+            configuration would load. A subcommand's own ``--profile`` reaches here unchecked.
 
     Example:
         >>> from sercomm_printserver.composition import build_testing
-        >>> config, error = load_config(build_testing(), profile=None, env_file=None, set_overrides=("a.b=1",))
+        >>> overrides = parse_command_line(None, ("a.b=1",))
+        >>> config, error = load_config(build_testing(), profile=None, env_file=None, set_overrides=overrides)
         >>> config.get("a"), error
         ({'b': 1}, None)
     """
-    _check_command_line(profile, set_overrides)
+    _check_profile(profile)
     try:
         config = services.get_config(profile=profile, dotenv_path=env_file)
     except _LOAD_ERRORS as exc:
@@ -200,6 +235,7 @@ __all__ = [
     "check_logging",
     "echo_load_traceback",
     "load_config",
+    "parse_command_line",
     "report_load_failure",
     "require_config",
     "start_logging",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from ipaddress import IPv4Address
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,7 +16,7 @@ import pytest
 
 from sercomm_printserver.adapters.cli import root as cli_root
 from sercomm_printserver.adapters.memory.device import FakeDevice, FakeTftp
-from sercomm_printserver.adapters.memory.neighbors import FakeNeighborTable
+from sercomm_printserver.adapters.memory.neighbors import FakeNeighborTable, NeighborOperation
 from sercomm_printserver.application.print_server import DevicePorts, PrintServer
 from sercomm_printserver.composition import build_testing
 from sercomm_printserver.domain.config_codec import parse_config
@@ -29,11 +30,14 @@ if TYPE_CHECKING:
 
     from sercomm_printserver.application.ports import NeighborTable
     from sercomm_printserver.composition import AppServices
+    from sercomm_printserver.domain.device_info import MacAddress
     from sercomm_printserver.domain.endpoint import DeviceEndpoint
 
 _DUMPS = Path(__file__).resolve().parents[1] / "docs" / "device-dump"
 _MAC = "00:c0:02:12:34:56"
 _TARGET = ["--mac", _MAC, "--ip", "192.0.2.77"]
+_IP = IPv4Address("192.0.2.77")
+_SET_AND_REMOVED = [(NeighborOperation.SET, _IP), (NeighborOperation.REMOVE, _IP)]
 
 
 @pytest.fixture
@@ -80,7 +84,7 @@ def test_arp_reach_reports_the_device_and_removes_the_entry(
     data = envelope["data"]
     assert isinstance(data, dict)
     assert (data["mac_address"], data["borrowed_ip"], data["write"]) == (_MAC, "192.0.2.77", None)
-    assert table.history == [("set", "192.0.2.77"), ("remove", "192.0.2.77")]
+    assert table.history == _SET_AND_REMOVED
     assert device.actions == []
 
 
@@ -154,7 +158,7 @@ def test_arp_factory_reset_needs_the_default_name_of_the_mac(
 class _RefusingTable(FakeNeighborTable):
     """A host that may not write its neighbour table, as an unprivileged process sees it."""
 
-    def set_static(self, ip: str, mac: str) -> None:
+    def set_static(self, ip: IPv4Address, mac: MacAddress) -> None:
         raise HostPrivilegeError("changing the neighbour table needs root or CAP_NET_ADMIN")
 
 
@@ -167,4 +171,55 @@ def test_arp_without_admin_rights_exits_13_and_never_talks_to_the_device(
 
     assert result.exit_code == 13
     assert "CAP_NET_ADMIN" in result.output
+    assert (table.history, device.actions) == ([], [])
+
+
+@pytest.mark.parametrize("spelling", ["00-C0-02-12-34-56", "00:C0:02:12:34:56", "00c0.0212.3456"])
+def test_arp_reach_takes_any_common_mac_spelling_and_reports_it_normalised(
+    cli_runner: CliRunner, device: FakeDevice, table: FakeNeighborTable, spelling: str
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli,
+        ["arp", "reach", "--mac", spelling, "--ip", "192.0.2.77", "--json-bare"],
+        obj=_services(device, table),
+    )
+
+    assert result.exit_code == 0, result.output
+    data = _json(result.stdout)["data"]
+    assert isinstance(data, dict)
+    assert data["mac_address"] == _MAC
+    assert table.history == _SET_AND_REMOVED
+
+
+@pytest.mark.parametrize(
+    ("option", "arguments"),
+    [
+        ("--mac", ["--mac", "00:c0:02:12:34:5g", "--ip", "192.0.2.77"]),
+        ("--ip", ["--mac", _MAC, "--ip", "192.0.2.300"]),
+        ("--ip", ["--mac", _MAC, "--ip", "printer.example"]),
+        ("--ip", ["--mac", _MAC, "--ip", "2001:db8::77"]),
+    ],
+)
+@pytest.mark.parametrize(
+    ("command", "consent"),
+    [("reach", []), ("assign-ip", ["--yes"]), ("factory-reset", ["--yes", "--confirm-name", "SC123456"])],
+)
+def test_a_malformed_mac_or_ip_exits_22_before_the_neighbour_table_is_touched(
+    cli_runner: CliRunner,
+    device: FakeDevice,
+    table: FakeNeighborTable,
+    *,
+    command: str,
+    consent: list[str],
+    option: str,
+    arguments: list[str],
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli, ["arp", command, *arguments, *consent, "--json-bare"], obj=_services(device, table)
+    )
+
+    assert result.exit_code == 22, result.output
+    envelope = _json(result.stdout)
+    assert (envelope["ok"], envelope["error"]) == (False, "ValueError")
+    assert str(envelope["message"]).startswith(f"{option} ")
     assert (table.history, device.actions) == ([], [])

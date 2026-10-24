@@ -1,9 +1,14 @@
-"""Parse and apply ``--set SECTION.KEY=VALUE`` CLI overrides to Config."""
+"""Parse and apply ``--set SECTION.KEY=VALUE`` CLI overrides to Config.
+
+The strings are parsed once, by :func:`nest_overrides`, into a :class:`ParsedOverrides`;
+:func:`apply_overrides` and every other reader take that record, never the strings.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 import orjson
@@ -32,6 +37,23 @@ class ConfigOverride:
     section: str
     key_path: tuple[str, ...]
     value: CoercedValue
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedOverrides:
+    """The ``--set`` values, parsed and checked together by :func:`nest_overrides`.
+
+    Attributes:
+        tree: The nested mapping they override, the last value of a repeated key winning.
+        keys: The dotted keys they set; empty exactly when no ``--set`` was given.
+    """
+
+    tree: Mapping[str, Mapping[str, object]]
+    keys: frozenset[str]
+
+
+NO_OVERRIDES = ParsedOverrides(tree=MappingProxyType({}), keys=frozenset())
+"""No ``--set`` given."""
 
 
 def parse_override(raw: str) -> ConfigOverride:
@@ -176,7 +198,7 @@ def _refuse_conflicts(dotted_keys: list[str]) -> None:
             raise ValueError(f"conflicting --set overrides: {key} is given a value and {nested} puts a key under it")
 
 
-def nest_overrides(raw_overrides: tuple[str, ...]) -> tuple[dict[str, dict[str, object]], frozenset[str]]:
+def nest_overrides(raw_overrides: tuple[str, ...]) -> ParsedOverrides:
     """Parse ``--set`` values into the nested mapping they override, checking them together.
 
     Args:
@@ -191,9 +213,11 @@ def nest_overrides(raw_overrides: tuple[str, ...]) -> tuple[dict[str, dict[str, 
             value, another puts a key under it).
 
     Example:
-        >>> tree, keys = nest_overrides(("a.b=1", "a.c.d=x"))
-        >>> tree, sorted(keys)
+        >>> parsed = nest_overrides(("a.b=1", "a.c.d=x"))
+        >>> parsed.tree, sorted(parsed.keys)
         ({'a': {'b': 1, 'c': {'d': 'x'}}}, ['a.b', 'a.c.d'])
+        >>> nest_overrides(()) == NO_OVERRIDES
+        True
     """
     parsed = [parse_override(raw) for raw in raw_overrides]
     dotted_keys = [".".join((override.section, *override.key_path)) for override in parsed]
@@ -201,7 +225,7 @@ def nest_overrides(raw_overrides: tuple[str, ...]) -> tuple[dict[str, dict[str, 
     overrides: dict[str, dict[str, object]] = {}
     for override in parsed:
         _nest_override(overrides, override)
-    return overrides, frozenset(dotted_keys)
+    return ParsedOverrides(tree=overrides, keys=frozenset(dotted_keys))
 
 
 def _dotted_keys(data: Mapping[str, object], prefix: str = "") -> Iterator[str]:
@@ -251,53 +275,50 @@ def _provenance_naming_the_cli(
     return provenance
 
 
-def apply_overrides(config: Config, raw_overrides: tuple[str, ...]) -> Config:
-    """Deep-merge CLI overrides into a Config instance.
+def apply_overrides(config: Config, overrides: ParsedOverrides) -> Config:
+    """Deep-merge parsed CLI overrides into a Config instance.
 
-    Parses each raw override string, builds a nested override dict,
-    and delegates to ``Config.with_overrides()`` for the merge.
+    Delegates the merge to ``Config.with_overrides()``, then names the command line as the
+    source of every key the overrides set.
 
     Args:
         config: Original immutable Config from file/env layers.
-        raw_overrides: Tuple of ``SECTION.KEY=VALUE`` strings from ``--set``.
+        overrides: The ``--set`` values :func:`nest_overrides` parsed.
 
     Returns:
         New Config instance with overrides applied, or the original if
-        ``raw_overrides`` is empty.
-
-    Raises:
-        ValueError: If any override string is malformed, or two of them conflict.
+        ``overrides`` sets no key.
 
     Examples:
         >>> from lib_layered_config import Config
         >>> cfg = Config({"s": {"k": 1}}, {"s.k": {"layer": "default", "path": None, "key": "s.k"}})
-        >>> result = apply_overrides(cfg, ("s.k=2",))
+        >>> result = apply_overrides(cfg, nest_overrides(("s.k=2",)))
         >>> result["s"]["k"]
         2
         >>> result.origin("s.k")["layer"]
         'cli'
-        >>> apply_overrides(cfg, ()) is cfg
+        >>> apply_overrides(cfg, NO_OVERRIDES) is cfg
         True
     """
-    if not raw_overrides:
+    if not overrides.keys:
         return config
-
-    overrides, overridden = nest_overrides(raw_overrides)
 
     # Rebuilt rather than returned straight from with_overrides, which records
     # each overridden key as the library's generic "override" layer: `config`
     # names the command line ("cli") as the source of a --set value, so a
     # reader knows to look at the invocation rather than at any file.
-    merged = config.with_overrides(overrides)
+    merged = config.with_overrides(overrides.tree)
     merged_as_dict = merged.as_dict()
-    provenance = _provenance_naming_the_cli(config, merged_as_dict, overridden)
+    provenance = _provenance_naming_the_cli(config, merged_as_dict, overrides.keys)
     return Config(merged_as_dict, provenance, NotSensitiveKeys.of(NOT_SENSITIVE))
 
 
 __all__ = [
     "CLI_LAYER",
+    "NO_OVERRIDES",
     "CoercedValue",
     "ConfigOverride",
+    "ParsedOverrides",
     "apply_overrides",
     "coerce_value",
     "nest_overrides",

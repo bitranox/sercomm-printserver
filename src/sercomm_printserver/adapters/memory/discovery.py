@@ -6,9 +6,12 @@ from ipaddress import IPv4Address, IPv4Network
 from typing import TYPE_CHECKING
 
 from ...application.discovery import PRINT_SERVER_GREETING, ProbeHit
+from ...domain.device_info import normalise_mac
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+    from ...domain.device_info import MacAddress
 
 
 class FakeScanner:
@@ -31,7 +34,10 @@ class FakeScanner:
     ) -> None:
         self._hits = set(hits)
         self._others = dict(others or {})
-        self._macs = dict(macs or {})
+        # Parsed once, so a malformed fixture MAC fails here rather than at the first lookup.
+        self._macs: dict[IPv4Address, MacAddress] = {
+            IPv4Address(host): normalise_mac(mac) for host, mac in (macs or {}).items()
+        }
         self._networks = networks
         self.probed: list[str] = []
 
@@ -53,8 +59,8 @@ class FakeScanner:
         ]
         return tuple(found)
 
-    def mac_address(self, host: str) -> str | None:
-        """Return the configured MAC address."""
+    def mac_address(self, host: IPv4Address) -> MacAddress | None:
+        """Return the configured MAC address, normalised like the real scanner's."""
         return self._macs.get(host)
 
 

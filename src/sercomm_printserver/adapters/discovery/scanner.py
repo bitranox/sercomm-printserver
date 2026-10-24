@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Final
 import ipscout
 
 from ...application.discovery import ProbeHit
+from ...domain.device_info import MacAddress, normalise_mac
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -52,10 +53,15 @@ class FtpBannerScanner:
             results = list(pool.map(probe, hosts))
         return tuple(hit for hit in results if hit is not None)
 
-    def mac_address(self, host: str) -> str | None:
-        """Return the MAC this host's neighbour cache holds for ``host``, or None."""
+    def mac_address(self, host: IPv4Address) -> MacAddress | None:
+        """Return the MAC this host's neighbour cache holds for ``host``, normalised, or None.
+
+        A cache entry that is not a MAC address reads as no entry: the MAC is optional in a
+        discovery report, and one odd entry must not end a sweep over a whole network.
+        """
         try:
-            return ipscout.get_mac_address(host)
+            raw = ipscout.get_mac_address(str(host))
+            return None if raw is None else normalise_mac(raw)
         except (ipscout.IPScoutError, ValueError):
             return None
 

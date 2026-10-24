@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Final
 
 from pydantic import BaseModel
 
+from ..domain.device_info import MacAddress
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -37,7 +39,7 @@ class DiscoveredDevice(BaseModel, frozen=True, extra="forbid"):
     """A print server of the family found on the network."""
 
     host: IPv4Address
-    mac_address: str | None
+    mac_address: MacAddress | None
 
 
 class DiscoveryReport(BaseModel, frozen=True, extra="forbid"):
@@ -80,7 +82,7 @@ def discover(scanner: HostScanner, *, networks: Sequence[IPv4Network] | None, ti
 
 
 def _device(hit: ProbeHit, scanner: HostScanner) -> DiscoveredDevice:
-    return DiscoveredDevice(host=hit.host, mac_address=scanner.mac_address(str(hit.host)))
+    return DiscoveredDevice(host=hit.host, mac_address=scanner.mac_address(hit.host))
 
 
 __all__ = ["MAX_HOSTS", "PRINT_SERVER_GREETING", "DiscoveredDevice", "DiscoveryReport", "ProbeHit", "discover"]

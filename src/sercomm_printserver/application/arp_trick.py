@@ -19,19 +19,19 @@ The static entry is removed again in every case.
 from __future__ import annotations
 
 import contextlib
+from ipaddress import IPv4Address
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ..domain.config_codec import with_value
-from ..domain.device_info import DeviceInfo, mac_from_default_name, normalise_mac
-from ..domain.errors import ConfirmationRequiredError
+from ..domain.device_info import DeviceInfo, MacAddress, default_name_from_mac, mac_from_default_name, normalise_mac
+from ..domain.errors import ConfigFormatError, ConfirmationRequiredError
 from .print_server import ConfigWriteResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-    from ipaddress import IPv4Address
 
+    from ..domain.config_model import DeviceConfig
     from ..domain.endpoint import DeviceEndpoint
     from .ports import NeighborTable
     from .print_server import PrintServer
@@ -40,21 +40,24 @@ if TYPE_CHECKING:
 class ArpResult(BaseModel, frozen=True, extra="forbid"):
     """What an ARP-trick operation did."""
 
-    mac_address: str
-    borrowed_ip: str
+    mac_address: MacAddress
+    borrowed_ip: IPv4Address
     device: DeviceInfo
     write: ConfigWriteResult | None = None
 
 
 @contextlib.contextmanager
-def borrowed_address(table: NeighborTable, *, ip: str, mac: str) -> Generator[None, None, None]:
+def borrowed_address(table: NeighborTable, *, ip: IPv4Address, mac: MacAddress) -> Generator[None, None, None]:
     """Map ``ip`` to ``mac`` for the duration of the block, refusing an address in use.
+
+    ``mac`` is normalised already, as the table reports its holders, so the two compare as
+    they are; :func:`~sercomm_printserver.domain.device_info.normalise_mac` makes one.
 
     Raises:
         ValueError: This host already maps ``ip`` to another MAC - something else holds it.
     """
     holder = table.mac_of(ip)
-    if holder is not None and normalise_mac(holder) != normalise_mac(mac):
+    if holder is not None and holder != mac:
         raise ValueError(f"{ip} belongs to {holder} on this network; borrow a free address")
     table.set_static(ip, mac)
     try:
@@ -64,13 +67,29 @@ def borrowed_address(table: NeighborTable, *, ip: str, mac: str) -> Generator[No
 
 
 def reach(
-    table: NeighborTable, open_server: Callable[[DeviceEndpoint], PrintServer], *, endpoint: DeviceEndpoint, mac: str
+    table: NeighborTable,
+    open_server: Callable[[DeviceEndpoint], PrintServer],
+    *,
+    endpoint: DeviceEndpoint,
+    ip: IPv4Address,
+    mac: str,
 ) -> ArpResult:
-    """Read the device's PSINF over a borrowed address; changes nothing on the device."""
-    mac = normalise_mac(mac)
-    with borrowed_address(table, ip=endpoint.host, mac=mac):
-        device = _identified(open_server(endpoint), mac)
-    return ArpResult(mac_address=mac, borrowed_ip=endpoint.host, device=device)
+    """Read the device's PSINF over the borrowed address ``ip``; changes nothing on the device.
+
+    Args:
+        table: This host's neighbour table.
+        open_server: Returns the print server at an endpoint.
+        endpoint: Login, password and timeouts for the session; its host is replaced by ``ip``.
+        ip: A free address in this host's subnet to borrow for the call.
+        mac: The device's MAC in any common spelling (colons, dashes, none, Cisco dots).
+
+    Raises:
+        ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
+    """
+    device_mac = normalise_mac(mac)
+    with borrowed_address(table, ip=ip, mac=device_mac):
+        device = _identified(open_server(_at(endpoint, ip)), device_mac)
+    return ArpResult(mac_address=device_mac, borrowed_ip=ip, device=device)
 
 
 def assign_ip(
@@ -78,28 +97,30 @@ def assign_ip(
     open_server: Callable[[DeviceEndpoint], PrintServer],
     *,
     endpoint: DeviceEndpoint,
+    ip: IPv4Address,
     mac: str,
     netmask: IPv4Address | None = None,
     gateway: IPv4Address | None = None,
 ) -> ArpResult:
-    """Give the device behind ``mac`` the static address ``endpoint.host`` and restart it there.
+    """Give the device behind ``mac`` the static address ``ip`` and restart it there.
+
+    ``ip`` is both the address borrowed for the call and the one stored; ``endpoint`` carries
+    the session's login, password and timeouts, its host is replaced by ``ip``.
 
     Raises:
+        ConfigFormatError: The device's firmware has no DHCP switch (6A10), so its address
+            cannot be made static here.
         DeviceResponseError: The device behind the MAC is not one of this family, or stored
             something else than was written.
-        ValueError: ``mac`` is not a MAC address.
+        ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
     """
-    mac = normalise_mac(mac)
-    with borrowed_address(table, ip=endpoint.host, mac=mac):
-        server = open_server(endpoint)
-        device = _identified(server, mac)
-        new = with_value(with_value(server.read_config(), "IP_ADDR", endpoint.host), "DHCP_MODE", "Disable")
-        if netmask is not None:
-            new = with_value(new, "MASK", str(netmask))
-        if gateway is not None:
-            new = with_value(new, "GATEWAY", str(gateway))
+    device_mac = normalise_mac(mac)
+    with borrowed_address(table, ip=ip, mac=device_mac):
+        server = open_server(_at(endpoint, ip))
+        device = _identified(server, device_mac)
+        new = _static_at(server.read_config(), address=ip, netmask=netmask, gateway=gateway)
         result = server.write_config(new)
-    return ArpResult(mac_address=mac, borrowed_ip=endpoint.host, device=device, write=result)
+    return ArpResult(mac_address=device_mac, borrowed_ip=ip, device=device, write=result)
 
 
 def factory_reset(
@@ -107,31 +128,68 @@ def factory_reset(
     open_server: Callable[[DeviceEndpoint], PrintServer],
     *,
     endpoint: DeviceEndpoint,
+    ip: IPv4Address,
     mac: str,
     confirm_name: str,
 ) -> ArpResult:
     """Restore factory settings of the device behind ``mac``; its IP becomes 0.0.0.0 afterwards.
 
+    ``endpoint`` carries the session's login, password and timeouts; its host is replaced by
+    the borrowed address ``ip``.
+
     Raises:
         ConfirmationRequiredError: ``confirm_name`` is not the device's default name derived
             from ``mac``.
+        ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
     """
-    mac = normalise_mac(mac)
-    expected = "SC" + mac.replace(":", "")[-6:].upper()
+    device_mac = normalise_mac(mac)
+    expected = default_name_from_mac(device_mac)
     if confirm_name.strip().upper() != expected:
         raise ConfirmationRequiredError(f"factory reset by MAC needs the device's default name {expected}")
-    with borrowed_address(table, ip=endpoint.host, mac=mac):
-        server = open_server(endpoint)
-        device = _identified(server, mac)
+    with borrowed_address(table, ip=ip, mac=device_mac):
+        server = open_server(_at(endpoint, ip))
+        device = _identified(server, device_mac)
         server.factory_default(confirm_name=device.default_name)
-    return ArpResult(mac_address=mac, borrowed_ip=endpoint.host, device=device)
+    return ArpResult(mac_address=device_mac, borrowed_ip=ip, device=device)
 
 
-def _identified(server: PrintServer, mac: str) -> DeviceInfo:
+def _at(endpoint: DeviceEndpoint, ip: IPv4Address) -> DeviceEndpoint:
+    """Return ``endpoint`` at the borrowed address.
+
+    The endpoint's host is text because it also names devices by hostname; the borrowed
+    address is IPv4, since this host writes static neighbour entries for IPv4 only.
+    """
+    return endpoint.model_copy(update={"host": str(ip)})
+
+
+def _static_at(
+    config: DeviceConfig, *, address: IPv4Address, netmask: IPv4Address | None, gateway: IPv4Address | None
+) -> DeviceConfig:
+    """Return ``config`` with a static ``address``: DHCP off, netmask and gateway replaced when given.
+
+    Raises:
+        ConfigFormatError: ``config`` has no DHCP switch to turn off (firmware 6A10).
+    """
+    tcp_ip = config.tcp_ip
+    if tcp_ip.dhcp is None:
+        # Firmware 6A10 has no switch, and nothing measured shows it keeps a stored address
+        # rather than asking DHCP: refuse instead of risking a device that leaves the network.
+        raise ConfigFormatError("no parameter 'DHCP_MODE' in this configuration")
+    static = tcp_ip.model_copy(
+        update={
+            "ip_address": address,
+            "dhcp": False,
+            "netmask": tcp_ip.netmask if netmask is None else netmask,
+            "gateway": tcp_ip.gateway if gateway is None else gateway,
+        }
+    )
+    return config.model_copy(update={"tcp_ip": static})
+
+
+def _identified(server: PrintServer, mac: MacAddress) -> DeviceInfo:
     """Read PSINF and require that the device's own default name matches ``mac``."""
     device = server.info()
-    derived = mac_from_default_name(device.default_name)
-    if derived is None or derived != normalise_mac(mac):
+    if mac_from_default_name(device.default_name) != mac:
         raise ConfirmationRequiredError(
             f"the device at the borrowed address calls itself {device.default_name}, which is not MAC {mac}"
         )

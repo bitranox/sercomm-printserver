@@ -185,18 +185,18 @@ def _serial(reader: _Reader) -> SerialPort | None:
 
 
 def _logical_printers(reader: _Reader) -> tuple[LogicalPrinter, ...]:
-    numbers = reader.present_slots((n, cat.printer_line(n, 0)) for n in range(1, 9))
+    numbers = reader.present_slots((n, cat.printer_line(n, cat.PrinterField.PORT)) for n in range(1, 9))
     return tuple(_logical_printer(reader, number) for number in numbers)
 
 
 def _logical_printer(reader: _Reader, number: int) -> LogicalPrinter:
     return LogicalPrinter(
         number=number,
-        port=reader.choice(cat.printer_line(number, 0), PortId),
-        pre_string=reader.text(cat.printer_line(number, 1)),
-        post_string=reader.text(cat.printer_line(number, 2)),
-        convert_lf=reader.yes_no(cat.printer_line(number, 3)),
-        name=reader.optional_text(cat.printer_line(number, 4)),
+        port=reader.choice(cat.printer_line(number, cat.PrinterField.PORT), PortId),
+        pre_string=reader.text(cat.printer_line(number, cat.PrinterField.PRE_STRING)),
+        post_string=reader.text(cat.printer_line(number, cat.PrinterField.POST_STRING)),
+        convert_lf=reader.yes_no(cat.printer_line(number, cat.PrinterField.CONVERT_LF)),
+        name=reader.optional_text(cat.printer_line(number, cat.PrinterField.NAME)),
     )
 
 
@@ -259,16 +259,16 @@ def _mail(reader: _Reader) -> Mail | None:
     if not reader.has(cat.MAIL_SERVER):
         return None
     return Mail(
-        server=reader.address(cat.mail_line(0)),
-        account=reader.text(cat.mail_line(1)),
-        password=reader.text(cat.mail_line(2)),
-        check_interval=reader.integer(cat.mail_line(3)),
-        banner=reader.yes_no(cat.mail_line(4)),
-        redirect_account=reader.text(cat.mail_line(5)),
-        port=reader.text(cat.mail_line(6)),
-        print_every_mail=reader.yes_no(cat.mail_line(7)),
-        notify=reader.yes_no(cat.mail_line(8)),
-        printer_model=reader.text(cat.mail_line(9)),
+        server=reader.address(cat.mail_line(cat.MailField.SERVER)),
+        account=reader.text(cat.mail_line(cat.MailField.ACCOUNT)),
+        password=reader.text(cat.mail_line(cat.MailField.PASSWORD)),
+        check_interval=reader.integer(cat.mail_line(cat.MailField.CHECK_INTERVAL)),
+        banner=reader.yes_no(cat.mail_line(cat.MailField.BANNER)),
+        redirect_account=reader.text(cat.mail_line(cat.MailField.REDIRECT_ACCOUNT)),
+        port=reader.text(cat.mail_line(cat.MailField.PORT)),
+        print_every_mail=reader.yes_no(cat.mail_line(cat.MailField.PRINT_EVERY_MAIL)),
+        notify=reader.yes_no(cat.mail_line(cat.MailField.NOTIFY)),
+        printer_model=reader.text(cat.mail_line(cat.MailField.PRINTER_MODEL)),
     )
 
 
@@ -286,8 +286,8 @@ def _smb(reader: _Reader) -> Smb | None:
 def _snmp(reader: _Reader) -> Snmp | None:
     if not reader.has(cat.SNMP_CONTACT):
         return None
-    managers = reader.present_slots((slot, cat.manager_line(slot, 1)) for slot in cat.SLOTS)
-    traps = reader.present_slots((slot, cat.trap_line(slot, 1)) for slot in cat.SLOTS)
+    managers = reader.present_slots((slot, cat.manager_line(slot, cat.ManagerField.ADDRESS)) for slot in cat.SLOTS)
+    traps = reader.present_slots((slot, cat.trap_line(slot, cat.TrapField.ADDRESS)) for slot in cat.SLOTS)
     return Snmp(
         contact=reader.text(cat.SNMP_CONTACT),
         location=reader.text(cat.SNMP_LOCATION),
@@ -299,19 +299,19 @@ def _snmp(reader: _Reader) -> Snmp | None:
 def _manager(reader: _Reader, slot: int) -> SnmpManager:
     return SnmpManager(
         slot=slot,
-        address=reader.address(cat.manager_line(slot, 1)),
-        access=reader.choice(cat.manager_line(slot, 2), AccessRight),
-        community=reader.text(cat.manager_line(slot, 3)),
+        address=reader.address(cat.manager_line(slot, cat.ManagerField.ADDRESS)),
+        access=reader.choice(cat.manager_line(slot, cat.ManagerField.ACCESS), AccessRight),
+        community=reader.text(cat.manager_line(slot, cat.ManagerField.COMMUNITY)),
     )
 
 
 def _trap(reader: _Reader, slot: int) -> SnmpTrap:
     return SnmpTrap(
         slot=slot,
-        address=reader.address(cat.trap_line(slot, 1)),
-        severity=reader.integer(cat.trap_line(slot, 2)),
-        community=reader.text(cat.trap_line(slot, 3)),
-        enabled=reader.switch(cat.trap_line(slot, 4)),
+        address=reader.address(cat.trap_line(slot, cat.TrapField.ADDRESS)),
+        severity=reader.integer(cat.trap_line(slot, cat.TrapField.SEVERITY)),
+        community=reader.text(cat.trap_line(slot, cat.TrapField.COMMUNITY)),
+        enabled=reader.switch(cat.trap_line(slot, cat.TrapField.ENABLED)),
     )
 
 

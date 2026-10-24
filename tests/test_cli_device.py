@@ -74,6 +74,16 @@ def test_firmware_answers_for_a_person_and_as_an_envelope(
     }
 
 
+def test_the_firmware_envelope_is_written_byte_for_byte(
+    cli_runner: CliRunner, services: Callable[[], AppServices]
+) -> None:
+    result = cli_runner.invoke(cli_root.cli, ["firmware", *_HOST, "--json-bare"], obj=services)
+
+    assert result.stdout == (
+        '{"ok":true,"command":"firmware","data":{"host":"192.0.2.52","firmware":"6022"},"skipped":[]}\n'
+    )
+
+
 def test_device_info_envelope_carries_the_typed_report(
     cli_runner: CliRunner, services: Callable[[], AppServices]
 ) -> None:
@@ -160,6 +170,47 @@ def test_a_change_with_yes_is_written_and_applied(
     assert device.actions == [DeviceAction.RESET]
 
 
+def test_a_written_change_reports_the_flat_change_envelope(
+    cli_runner: CliRunner, services: Callable[[], AppServices]
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli, ["device-config", "set", "CONTACT=lab", "--yes", *_HOST, "--json-bare"], obj=services
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        '{"ok":true,"command":"device-config set","data":{"host":"192.0.2.52",'
+        '"changes":[{"number":6000,"token":"CONTACT","old":"","new":"lab"}],'
+        '"written":true,"applied":true,"reachable_at":"192.0.2.52"},"skipped":[]}\n'
+    )
+
+
+def test_a_written_change_tells_a_person_what_changed(
+    cli_runner: CliRunner, services: Callable[[], AppServices]
+) -> None:
+    result = cli_runner.invoke(cli_root.cli, ["device-config", "set", "CONTACT=lab", "--yes", *_HOST], obj=services)
+
+    assert result.stdout == "CONTACT: '' -> 'lab'\n192.0.2.52: written, device restarted\n"
+
+
+def test_a_change_to_the_same_value_writes_nothing_and_says_so(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli, ["device-config", "set", "CONTACT=", "--yes", *_HOST, "--json-bare"], obj=services
+    )
+
+    data = _json(result.stdout)["data"]
+    assert data == {
+        "host": "192.0.2.52",
+        "changes": [],
+        "written": False,
+        "applied": False,
+        "reachable_at": "192.0.2.52",
+    }
+    assert device.actions == []
+
+
 def test_an_invalid_value_exits_22_before_anything_is_sent(
     cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
 ) -> None:
@@ -210,6 +261,25 @@ def test_a_dangerous_action_needs_yes_and_the_device_name(
     assert device.actions == [action]
 
 
+@pytest.mark.parametrize(
+    ("args", "action"),
+    [
+        (["reset", "--yes", "--no-wait"], "reset"),
+        (["factory-default", "--yes", "--confirm-name", "PS_EXAMPLE"], "factory-default"),
+        (["store-ip", "--yes", "--confirm-name", "PS_EXAMPLE"], "store-ip"),
+        (["password", "clear", "--yes", "--confirm-name", "PS_EXAMPLE"], "password clear"),
+    ],
+)
+def test_an_action_names_itself_by_its_command_path(
+    cli_runner: CliRunner, services: Callable[[], AppServices], args: list[str], action: str
+) -> None:
+    human = cli_runner.invoke(cli_root.cli, [*args, *_HOST], obj=services)
+    machine = cli_runner.invoke(cli_root.cli, [*args, *_HOST, "--json-bare"], obj=services)
+
+    assert human.stdout == f"192.0.2.52: {action} done\n"
+    assert _json(machine.stdout)["data"] == {"host": "192.0.2.52", "action": action, "done": True}
+
+
 def test_password_set_reads_the_new_password_from_a_file(
     cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice, tmp_path: Path
 ) -> None:
@@ -249,6 +319,36 @@ def test_print_raw_reads_stdin_and_picks_the_printers_port(
 
     assert result.exit_code == 0
     assert device.raw_sends == [(9102, b"\x1bE")]
+
+
+def test_print_lpd_reports_the_transport_and_queue_as_fields(
+    cli_runner: CliRunner, services: Callable[[], AppServices]
+) -> None:
+    human = cli_runner.invoke(cli_root.cli, ["print", "lpd", "L2", "-", *_HOST], obj=services, input=b"x")
+    machine = cli_runner.invoke(
+        cli_root.cli, ["print", "lpd", "L2", "-", *_HOST, "--json-bare"], obj=services, input=b"x"
+    )
+
+    assert human.stdout == "192.0.2.52: sent 1 bytes to LPD queue L2\n"
+    assert machine.stdout == (
+        '{"ok":true,"command":"print lpd","data":{"host":"192.0.2.52","transport":"lpd",'
+        '"queue":"L2","printer":null,"size":1},"skipped":[]}\n'
+    )
+
+
+def test_print_raw_reports_the_transport_and_printer_as_fields(
+    cli_runner: CliRunner, services: Callable[[], AppServices]
+) -> None:
+    human = cli_runner.invoke(cli_root.cli, ["print", "raw", "1", "-", *_HOST], obj=services, input=b"x")
+    machine = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "1", "-", *_HOST, "--json-bare"], obj=services, input=b"x"
+    )
+
+    assert human.stdout == "192.0.2.52: sent 1 bytes to RAW port of L1\n"
+    assert machine.stdout == (
+        '{"ok":true,"command":"print raw","data":{"host":"192.0.2.52","transport":"raw",'
+        '"queue":null,"printer":1,"size":1},"skipped":[]}\n'
+    )
 
 
 def test_print_raw_to_a_logical_printer_without_a_raw_port_is_a_usage_error(

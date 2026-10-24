@@ -1,7 +1,8 @@
 """Unit tests for CLI configuration overrides (--set SECTION.KEY=VALUE).
 
 Tests cover parsing, value coercion, nest-override mechanics, and full
-apply_overrides integration with the Config class.
+apply_overrides integration with the Config class. apply_overrides takes the record
+nest_overrides parses, never the strings.
 """
 
 from __future__ import annotations
@@ -12,9 +13,12 @@ import pytest
 from lib_layered_config import Config
 
 from sercomm_printserver.adapters.config.overrides import (
+    NO_OVERRIDES,
     ConfigOverride,
+    ParsedOverrides,
     apply_overrides,
     coerce_value,
+    nest_overrides,
     parse_override,
 )
 
@@ -233,11 +237,11 @@ def _make_config(data: dict[str, Any]) -> Config:
 
 
 @pytest.mark.os_agnostic
-def test_apply_overrides_empty_tuple_returns_same_instance() -> None:
+def test_apply_overrides_empty_record_returns_same_instance() -> None:
     """No overrides returns the original Config instance unchanged."""
     config = _make_config({"s": {"k": 1}})
 
-    result = apply_overrides(config, ())
+    result = apply_overrides(config, nest_overrides(()))
 
     assert result is config
 
@@ -247,7 +251,7 @@ def test_apply_overrides_single_override() -> None:
     """Single override sets the value in the correct section."""
     config = _make_config({"s": {"k": 1, "other": "kept"}})
 
-    result = apply_overrides(config, ("s.k=2",))
+    result = apply_overrides(config, nest_overrides(("s.k=2",)))
 
     assert result["s"]["k"] == 2
     assert result["s"]["other"] == "kept"
@@ -258,7 +262,7 @@ def test_apply_overrides_nested_key() -> None:
     """Nested key override creates intermediate dicts."""
     config = _make_config({"s": {"existing": "kept"}})
 
-    result = apply_overrides(config, ("s.nested.deep=42",))
+    result = apply_overrides(config, nest_overrides(("s.nested.deep=42",)))
 
     assert result["s"]["nested"]["deep"] == 42
     assert result["s"]["existing"] == "kept"
@@ -269,7 +273,7 @@ def test_apply_overrides_multiple_overrides() -> None:
     """Multiple overrides all apply to the result."""
     config = _make_config({"s": {"a": 1, "b": 2}})
 
-    result = apply_overrides(config, ("s.a=10", "s.b=20"))
+    result = apply_overrides(config, nest_overrides(("s.a=10", "s.b=20")))
 
     assert result["s"]["a"] == 10
     assert result["s"]["b"] == 20
@@ -280,7 +284,7 @@ def test_apply_overrides_preserves_unmodified_sections() -> None:
     """Sections not targeted by overrides remain unchanged."""
     config = _make_config({"s1": {"k": "original"}, "s2": {"k": "untouched"}})
 
-    result = apply_overrides(config, ("s1.k=changed",))
+    result = apply_overrides(config, nest_overrides(("s1.k=changed",)))
 
     assert result["s1"]["k"] == "changed"
     assert result["s2"]["k"] == "untouched"
@@ -291,7 +295,7 @@ def test_apply_overrides_creates_missing_section() -> None:
     """Override targeting a non-existent section creates it."""
     config = _make_config({"existing": {"k": 1}})
 
-    result = apply_overrides(config, ("new_section.key=value",))
+    result = apply_overrides(config, nest_overrides(("new_section.key=value",)))
 
     assert result["new_section"]["key"] == "value"
     assert result["existing"]["k"] == 1
@@ -302,7 +306,7 @@ def test_apply_overrides_boolean_coercion() -> None:
     """Boolean values are correctly coerced from JSON strings."""
     config = _make_config({"s": {"flag": False}})
 
-    result = apply_overrides(config, ("s.flag=true",))
+    result = apply_overrides(config, nest_overrides(("s.flag=true",)))
 
     assert result["s"]["flag"] is True
 
@@ -312,19 +316,33 @@ def test_apply_overrides_does_not_mutate_original() -> None:
     """Original config is not modified by apply_overrides."""
     config = _make_config({"s": {"k": "original"}})
 
-    result = apply_overrides(config, ("s.k=changed",))
+    result = apply_overrides(config, nest_overrides(("s.k=changed",)))
 
     assert config["s"]["k"] == "original"
     assert result["s"]["k"] == "changed"
 
 
 @pytest.mark.os_agnostic
-def test_apply_overrides_rejects_malformed_input() -> None:
+def test_nest_overrides_rejects_malformed_input() -> None:
     """Malformed override string raises ValueError."""
-    config = _make_config({"s": {"k": 1}})
-
     with pytest.raises(ValueError, match="must contain '='"):
-        apply_overrides(config, ("invalid",))
+        nest_overrides(("invalid",))
+
+
+@pytest.mark.os_agnostic
+def test_nest_overrides_of_nothing_is_the_empty_record() -> None:
+    assert nest_overrides(()) == NO_OVERRIDES
+    assert NO_OVERRIDES.keys == frozenset()
+    assert dict(NO_OVERRIDES.tree) == {}
+
+
+@pytest.mark.os_agnostic
+def test_nest_overrides_returns_the_tree_and_the_dotted_keys() -> None:
+    parsed = nest_overrides(("a.b=1", "a.c.d=x", "a.b=2"))
+
+    assert isinstance(parsed, ParsedOverrides)
+    assert parsed.tree == {"a": {"b": 2, "c": {"d": "x"}}}
+    assert parsed.keys == frozenset({"a.b", "a.c.d"})
 
 
 @pytest.mark.os_agnostic
@@ -338,7 +356,7 @@ def test_apply_overrides_names_the_cli_as_the_source_of_an_overridden_key() -> N
     """
     config = Config({"s": {"k": 1}}, {"s.k": {"layer": "file", "path": "/etc/app.toml", "key": "s.k"}})
 
-    result = apply_overrides(config, ("s.k=2",))
+    result = apply_overrides(config, nest_overrides(("s.k=2",)))
 
     assert result["s"]["k"] == 2
     assert result.origin("s.k") == {"layer": "cli", "path": None, "key": "s.k"}
@@ -355,7 +373,7 @@ def test_apply_overrides_leaves_an_untouched_key_with_its_own_source() -> None:
         },
     )
 
-    result = apply_overrides(config, ("s.k=2",))
+    result = apply_overrides(config, nest_overrides(("s.k=2",)))
 
     assert result.origin("s.other") == {"layer": "env", "path": None, "key": "s.other"}
 
@@ -369,15 +387,15 @@ def test_apply_overrides_leaves_an_untouched_key_with_its_own_source() -> None:
     [("a.b=1", "a.b.c=2"), ("a.b.c=2", "a.b=1"), ('a.b={"c": 1}', "a.b.d=2"), ("a.b.c=1", "a.x=0", "a.b=2")],
     ids=["value-then-key-under-it", "key-under-it-then-value", "json-table-then-key-under-it", "not-adjacent"],
 )
-def test_apply_overrides_refuses_a_key_given_both_a_value_and_keys_under_it(overrides: tuple[str, ...]) -> None:
+def test_nest_overrides_refuses_a_key_given_both_a_value_and_keys_under_it(overrides: tuple[str, ...]) -> None:
     """Either order used to go wrong: a TypeError, or the earlier override silently dropped."""
     with pytest.raises(ValueError, match=r"conflicting --set overrides: a\.b is given a value and a\.b\."):
-        apply_overrides(_make_config({}), overrides)
+        nest_overrides(overrides)
 
 
 @pytest.mark.os_agnostic
 def test_apply_overrides_lets_the_last_of_two_values_for_one_key_win() -> None:
-    result = apply_overrides(_make_config({}), ("a.b=1", "a.b=2"))
+    result = apply_overrides(_make_config({}), nest_overrides(("a.b=1", "a.b=2")))
 
     assert result["a"]["b"] == 2
 
@@ -385,6 +403,6 @@ def test_apply_overrides_lets_the_last_of_two_values_for_one_key_win() -> None:
 @pytest.mark.os_agnostic
 def test_apply_overrides_keeps_sibling_keys_that_share_a_prefix_of_letters() -> None:
     """``a.b`` and ``a.bc`` are siblings, not a value and a key under it."""
-    result = apply_overrides(_make_config({}), ("a.b=1", "a.bc.d=2"))
+    result = apply_overrides(_make_config({}), nest_overrides(("a.b=1", "a.bc.d=2")))
 
     assert result["a"] == {"b": 1, "bc": {"d": 2}}

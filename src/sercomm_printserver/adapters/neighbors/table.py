@@ -13,9 +13,17 @@ address a silent printer or laptop holds would send that host's traffic to the p
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import ipscout
 
+from ...domain.device_info import normalise_mac
 from ...domain.errors import HostPrivilegeError, NeighborTableError
+
+if TYPE_CHECKING:
+    from ipaddress import IPv4Address
+
+    from ...domain.device_info import MacAddress
 
 
 class IpscoutNeighborTable:
@@ -29,7 +37,7 @@ class IpscoutNeighborTable:
     def __init__(self, *, interface: str | None = None) -> None:
         self._interface = interface
 
-    def set_static(self, ip: str, mac: str) -> None:
+    def set_static(self, ip: IPv4Address, mac: MacAddress) -> None:
         """Map ``ip`` to ``mac`` permanently.
 
         Raises:
@@ -39,7 +47,7 @@ class IpscoutNeighborTable:
             NeighborTableError: The operating system refused for another reason.
         """
         try:
-            ipscout.set_neighbour(ip, mac, interface=self._interface)
+            ipscout.set_neighbour(str(ip), mac, interface=self._interface)
         except ipscout.IPScoutPermissionError as error:
             raise HostPrivilegeError(str(error)) from error
         except ipscout.IPScoutUnsupportedError as error:
@@ -47,7 +55,7 @@ class IpscoutNeighborTable:
         except ipscout.IPScoutError as error:
             raise NeighborTableError(str(error)) from error
 
-    def remove(self, ip: str) -> bool:
+    def remove(self, ip: IPv4Address) -> bool:
         """Remove the entry for ``ip``; True when there was one.
 
         Raises:
@@ -55,22 +63,40 @@ class IpscoutNeighborTable:
             NeighborTableError: The operating system refused for another reason.
         """
         try:
-            return ipscout.remove_neighbour(ip, interface=self._interface)
+            return ipscout.remove_neighbour(str(ip), interface=self._interface)
         except ipscout.IPScoutPermissionError as error:
             raise HostPrivilegeError(str(error)) from error
         except ipscout.IPScoutError as error:
             raise NeighborTableError(str(error)) from error
 
-    def mac_of(self, ip: str) -> str | None:
+    def mac_of(self, ip: IPv4Address) -> MacAddress | None:
         """Return the MAC that holds ``ip`` on the wire, or None when nothing answers.
 
         Asks with an ARP request where ipscout can; where it cannot (no privilege for an active
         request), falls back to the passive cache, which knows only hosts already talked to.
+
+        Raises:
+            NeighborTableError: The operating system reported something that is not a MAC.
         """
         try:
-            return ipscout.get_mac_address(ip, active=True)
+            reply = ipscout.get_mac_address(str(ip), active=True)
         except ipscout.IPScoutError:
-            return ipscout.get_mac_address(ip)
+            reply = ipscout.get_mac_address(str(ip))
+        return None if reply is None else _parsed_mac(reply, ip=ip)
+
+
+def _parsed_mac(reply: str, *, ip: IPv4Address) -> MacAddress:
+    """Normalise ipscout's answer at the boundary, so callers compare MACs as they are.
+
+    Example:
+        >>> from ipaddress import IPv4Address
+        >>> _parsed_mac("00-C0-02-12-34-56", ip=IPv4Address("192.0.2.77"))
+        '00:c0:02:12:34:56'
+    """
+    try:
+        return normalise_mac(reply)
+    except ValueError as error:
+        raise NeighborTableError(f"the neighbour table holds {reply!r} for {ip}, which is not a MAC") from error
 
 
 __all__ = ["IpscoutNeighborTable"]

@@ -7,14 +7,15 @@ the printer's language (PCL, PostScript, plain text).
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING, BinaryIO
 
 import rich_click as click
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from sercomm_printserver.domain.endpoint import PrintJob
 
-from ..constants import CLICK_CONTEXT_SETTINGS
+from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import argument, option
 from ._device import DeviceFlags, device_options, run_device_command
 
@@ -22,12 +23,38 @@ if TYPE_CHECKING:
     from sercomm_printserver.application.print_server import PrintServer
 
 
+class PrintTransport(str, Enum):
+    """How the data reached the logical printer."""
+
+    LPD = "lpd"
+    RAW = "raw"
+
+
 class PrintReport(BaseModel, frozen=True):
-    """Answer of ``print lpd`` and ``print raw``."""
+    """Answer of ``print lpd`` and ``print raw``.
+
+    LPD names its target by ``queue`` and RAW by ``printer``; the other one is None, so a script
+    reads the target without parsing a sentence. Queue names stay free strings: the device
+    defines them, and this tool does not claim to know every model's set.
+
+    Example:
+        >>> report = PrintReport(host="192.0.2.52", transport=PrintTransport.RAW, queue=None, printer=1, size=2)
+        >>> report.model_dump_json()
+        '{"host":"192.0.2.52","transport":"raw","queue":null,"printer":1,"size":2}'
+    """
 
     host: str
-    target: str
+    transport: PrintTransport
+    queue: str | None
+    printer: int | None
     size: int
+
+    @model_validator(mode="after")
+    def _names_its_target_by_its_transport(self) -> PrintReport:
+        named_by_queue = self.transport is PrintTransport.LPD
+        if (self.queue is not None) != named_by_queue or (self.printer is not None) == named_by_queue:
+            raise ValueError(f"a {self.transport.value} print names its target by exactly one of queue/printer")
+        return self
 
 
 def _flags(host: str | None, timeout: float | None, as_json: bool, as_json_bare: bool) -> DeviceFlags:
@@ -35,7 +62,11 @@ def _flags(host: str | None, timeout: float | None, as_json: bool, as_json_bare:
 
 
 def _render(report: PrintReport) -> str:
-    return f"{report.host}: sent {report.size} bytes to {report.target}"
+    if report.transport is PrintTransport.LPD:
+        target = f"{report.transport.value.upper()} queue {report.queue}"
+    else:
+        target = f"{report.transport.value.upper()} port of L{report.printer}"
+    return f"{report.host}: sent {report.size} bytes to {target}"
 
 
 @click.group("print", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -65,10 +96,12 @@ def cli_print_lpd(
     def work(server: PrintServer) -> PrintReport:
         job = PrintJob(data=source.read(), name=job_name)
         server.print_lpd(queue, job)
-        return PrintReport(host=server.endpoint.host, target=f"LPD queue {queue}", size=len(job.data))
+        return PrintReport(
+            host=server.endpoint.host, transport=PrintTransport.LPD, queue=queue, printer=None, size=len(job.data)
+        )
 
     run_device_command(
-        ctx, command="print lpd", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
+        ctx, command=CommandName.PRINT_LPD, flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
     )
 
 
@@ -92,11 +125,13 @@ def cli_print_raw(
     def work(server: PrintServer) -> PrintReport:
         data = source.read()
         server.print_raw(printer, data)
-        return PrintReport(host=server.endpoint.host, target=f"RAW port of L{printer}", size=len(data))
+        return PrintReport(
+            host=server.endpoint.host, transport=PrintTransport.RAW, queue=None, printer=printer, size=len(data)
+        )
 
     run_device_command(
-        ctx, command="print raw", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
+        ctx, command=CommandName.PRINT_RAW, flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
     )
 
 
-__all__ = ["PrintReport", "cli_print"]
+__all__ = ["PrintReport", "PrintTransport", "cli_print"]

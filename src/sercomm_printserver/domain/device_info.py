@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import re
 from ipaddress import AddressValueError, IPv4Address
-from typing import Final
+from typing import Annotated, Final, NewType
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
 from .errors import DeviceResponseError
 
@@ -25,10 +25,37 @@ _SERCOMM_OUI: Final = "00:c0:02"
 _MAC: Final = re.compile(
     r"[0-9a-f]{2}([:-]?)(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}", re.ASCII | re.IGNORECASE
 )
+#: The type behind :data:`MacAddress`; only :func:`normalise_mac` makes one.
+_NormalisedMac = NewType("_NormalisedMac", str)
 _SYST_REPLY: Final = re.compile(r"215 Print Server FW (?P<version>.*)")
 #: What a firmware version looks like: 6022, 6A10. Firmware 6A10 answers SYST with random
 #: bytes in place of its version, so anything else is no version at all.
 _VERSION: Final = re.compile(r"[0-9A-Za-z.]{1,16}")
+
+
+def normalise_mac(mac: str) -> MacAddress:
+    """Return ``mac`` as lowercase colon-separated hex, the form PSINF and the default name give.
+
+    Raises:
+        ValueError: ``mac`` is not a 48-bit hardware address in a common spelling.
+
+    Example:
+        >>> normalise_mac("00-C0-02-12-34-56"), normalise_mac("00c0.0212.3456")
+        ('00:c0:02:12:34:56', '00:c0:02:12:34:56')
+    """
+    text = mac.strip()
+    if _MAC.fullmatch(text) is None:
+        raise ValueError(f"{mac!r} is not a MAC address")
+    digits = re.sub(r"[:.-]", "", text).lower()
+    return _NormalisedMac(":".join(digits[index : index + 2] for index in range(0, 12, 2)))
+
+
+#: A MAC address as lowercase colon-separated hex (``00:c0:02:12:34:56``).
+#:
+#: One name serves both uses: to the type checker it is the NewType :func:`normalise_mac`
+#: returns, so a bare ``str`` is not accepted where a normalised MAC is required; as a
+#: pydantic field type its validator normalises whatever spelling arrives.
+MacAddress = Annotated[_NormalisedMac, AfterValidator(normalise_mac)]
 
 
 class InfoEntry(BaseModel, frozen=True, extra="forbid"):
@@ -60,7 +87,7 @@ class DeviceInfo(BaseModel, frozen=True, extra="forbid"):
     protocol_id: str
     default_name: str
     server_name: str
-    mac_address: str | None
+    mac_address: MacAddress | None
     ip_address: IPv4Address | None
     subnet_mask: IPv4Address | None
     gateway: IPv4Address | None
@@ -68,7 +95,7 @@ class DeviceInfo(BaseModel, frozen=True, extra="forbid"):
     sections: tuple[InfoSection, ...]
 
 
-def mac_from_default_name(default_name: str) -> str | None:
+def mac_from_default_name(default_name: str) -> MacAddress | None:
     """Derive the MAC address from a default name ``SCxxyyzz``, or None for any other name.
 
     Example:
@@ -81,24 +108,22 @@ def mac_from_default_name(default_name: str) -> str | None:
     if match is None:
         return None
     tail = match[1].lower()
-    return ":".join([_SERCOMM_OUI, tail[0:2], tail[2:4], tail[4:6]])
+    return _NormalisedMac(":".join([_SERCOMM_OUI, tail[0:2], tail[2:4], tail[4:6]]))
 
 
-def normalise_mac(mac: str) -> str:
-    """Return ``mac`` as lowercase colon-separated hex, the form PSINF and the default name give.
+def default_name_from_mac(mac: MacAddress) -> str:
+    """Return the default name ``SCxxyyzz`` a unit with ``mac`` carries: the inverse of :func:`mac_from_default_name`.
 
-    Raises:
-        ValueError: ``mac`` is not a 48-bit hardware address in a common spelling.
+    The name holds only the last three bytes, so the vendor prefix is not checked here; a MAC
+    outside SerComm's prefix yields a name no device of this family reports.
 
     Example:
-        >>> normalise_mac("00-C0-02-12-34-56"), normalise_mac("00c0.0212.3456")
-        ('00:c0:02:12:34:56', '00:c0:02:12:34:56')
+        >>> default_name_from_mac(normalise_mac("00:c0:02:12:34:56"))
+        'SC123456'
+        >>> mac_from_default_name(default_name_from_mac(normalise_mac("00-C0-02-AB-CD-EF")))
+        '00:c0:02:ab:cd:ef'
     """
-    text = mac.strip()
-    if _MAC.fullmatch(text) is None:
-        raise ValueError(f"{mac!r} is not a MAC address")
-    digits = re.sub(r"[:.-]", "", text).lower()
-    return ":".join(digits[index : index + 2] for index in range(0, 12, 2))
+    return "SC" + mac.replace(":", "")[-6:].upper()
 
 
 def parse_firmware_reply(reply: str) -> str:
@@ -195,6 +220,8 @@ __all__ = [
     "DeviceInfo",
     "InfoEntry",
     "InfoSection",
+    "MacAddress",
+    "default_name_from_mac",
     "mac_from_default_name",
     "normalise_mac",
     "parse_firmware_reply",

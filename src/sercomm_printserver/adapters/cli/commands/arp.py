@@ -19,9 +19,10 @@ from typing import TYPE_CHECKING, TypeVar
 import rich_click as click
 
 from sercomm_printserver.application import arp_trick
+from sercomm_printserver.domain.device_info import normalise_mac
 from sercomm_printserver.domain.errors import ConfirmationRequiredError
 
-from ..constants import CLICK_CONTEXT_SETTINGS
+from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import option
 from ._device import DeviceFlags, run_endpoint_command, session_options
 
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from sercomm_printserver.application.arp_trick import ArpResult
     from sercomm_printserver.application.print_server import PrintServer
     from sercomm_printserver.composition import AppServices
+    from sercomm_printserver.domain.device_info import MacAddress
     from sercomm_printserver.domain.endpoint import DeviceEndpoint
 
 _F = TypeVar("_F", bound="Callable[..., Any]")
@@ -100,11 +102,12 @@ def cli_arp_reach(
     """Read the device's identity at the borrowed address; changes nothing on the device."""
 
     def work(endpoint: DeviceEndpoint, services: AppServices, settings: DeviceSettings) -> ArpResult:
+        mac_address, borrowed_ip = _mac(mac), _ipv4(ip, what="--ip")
         table = services.open_neighbor_table(interface=interface)
-        return arp_trick.reach(table, _opener(services, settings), endpoint=endpoint, mac=mac)
+        return arp_trick.reach(table, _opener(services, settings), endpoint=endpoint, ip=borrowed_ip, mac=mac_address)
 
     flags = DeviceFlags(host=ip, timeout=timeout, as_json=as_json, as_json_bare=as_json_bare)
-    run_endpoint_command(ctx, command="arp reach", flags=flags, work=work, human=_render)
+    run_endpoint_command(ctx, command=CommandName.ARP_REACH, flags=flags, work=work, human=_render)
 
 
 @cli_arp.command("assign-ip", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -132,18 +135,21 @@ def cli_arp_assign_ip(
     def work(endpoint: DeviceEndpoint, services: AppServices, settings: DeviceSettings) -> ArpResult:
         if not yes:
             raise ConfirmationRequiredError("arp assign-ip changes the device; pass --yes to do it")
+        mac_address, borrowed_ip = _mac(mac), _ipv4(ip, what="--ip")
+        new_netmask, new_gateway = _address(netmask, what="--netmask"), _address(gateway, what="--gateway")
         table = services.open_neighbor_table(interface=interface)
         return arp_trick.assign_ip(
             table,
             _opener(services, settings),
             endpoint=endpoint,
-            mac=mac,
-            netmask=_address(netmask, what="--netmask"),
-            gateway=_address(gateway, what="--gateway"),
+            ip=borrowed_ip,
+            mac=mac_address,
+            netmask=new_netmask,
+            gateway=new_gateway,
         )
 
     flags = DeviceFlags(host=ip, timeout=timeout, as_json=as_json, as_json_bare=as_json_bare)
-    run_endpoint_command(ctx, command="arp assign-ip", flags=flags, work=work, human=_render)
+    run_endpoint_command(ctx, command=CommandName.ARP_ASSIGN_IP, flags=flags, work=work, human=_render)
 
 
 @cli_arp.command("factory-reset", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -174,19 +180,49 @@ def cli_arp_factory_reset(
     def work(endpoint: DeviceEndpoint, services: AppServices, settings: DeviceSettings) -> ArpResult:
         if not yes:
             raise ConfirmationRequiredError("arp factory-reset changes the device; pass --yes to do it")
+        mac_address, borrowed_ip = _mac(mac), _ipv4(ip, what="--ip")
         table = services.open_neighbor_table(interface=interface)
         return arp_trick.factory_reset(
-            table, _opener(services, settings), endpoint=endpoint, mac=mac, confirm_name=confirm_name
+            table,
+            _opener(services, settings),
+            endpoint=endpoint,
+            ip=borrowed_ip,
+            mac=mac_address,
+            confirm_name=confirm_name,
         )
 
     flags = DeviceFlags(host=ip, timeout=timeout, as_json=as_json, as_json_bare=as_json_bare)
-    run_endpoint_command(ctx, command="arp factory-reset", flags=flags, work=work, human=_render)
+    run_endpoint_command(ctx, command=CommandName.ARP_FACTORY_RESET, flags=flags, work=work, human=_render)
+
+
+def _mac(value: str) -> MacAddress:
+    """Normalise ``--mac`` at the boundary; a malformed one is a ValueError (exit 22).
+
+    Example:
+        >>> _mac("00-C0-02-12-34-56")
+        '00:c0:02:12:34:56'
+    """
+    try:
+        return normalise_mac(value)
+    except ValueError as error:
+        raise ValueError(f"--mac {value!r} is not a MAC address") from error
 
 
 def _address(value: str | None, *, what: str) -> IPv4Address | None:
     """Parse an optional IPv4 option at the boundary; a malformed one is a ValueError (exit 22)."""
-    if value is None:
-        return None
+    return None if value is None else _ipv4(value, what=what)
+
+
+def _ipv4(value: str, *, what: str) -> IPv4Address:
+    """Parse one IPv4 option at the boundary; a malformed one is a ValueError (exit 22).
+
+    A hostname or an IPv6 address is malformed too: this host writes static neighbour entries
+    for IPv4 only.
+
+    Example:
+        >>> _ipv4(" 192.0.2.77 ", what="--ip")
+        IPv4Address('192.0.2.77')
+    """
     try:
         return IPv4Address(value.strip())
     except ValueError as error:

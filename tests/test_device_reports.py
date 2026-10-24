@@ -6,8 +6,16 @@ from ipaddress import IPv4Address
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from sercomm_printserver.domain.device_info import mac_from_default_name, parse_firmware_reply, parse_psinf
+from sercomm_printserver.domain.device_info import (
+    DeviceInfo,
+    default_name_from_mac,
+    mac_from_default_name,
+    normalise_mac,
+    parse_firmware_reply,
+    parse_psinf,
+)
 from sercomm_printserver.domain.errors import DeviceResponseError
 from sercomm_printserver.domain.port_status import PortState, PortType, PrinterStatus, parse_monitor
 
@@ -70,6 +78,25 @@ def test_psinf_with_a_line_that_is_not_key_value_is_refused() -> None:
 )
 def test_the_mac_address_follows_from_the_default_name(name: str, mac: str | None) -> None:
     assert mac_from_default_name(name) == mac
+
+
+@pytest.mark.parametrize(
+    ("mac", "name"),
+    [("00:c0:02:12:34:56", "SC123456"), ("00-C0-02-AB-CD-EF", "SCABCDEF"), ("00c0.0200.0001", "SC000001")],
+)
+def test_the_default_name_follows_from_the_mac_and_leads_back_to_it(mac: str, name: str) -> None:
+    device_mac = normalise_mac(mac)
+
+    assert default_name_from_mac(device_mac) == name
+    assert mac_from_default_name(name) == device_mac
+
+
+def test_a_device_info_mac_is_normalised_on_entry_and_a_malformed_one_refused() -> None:
+    fields = parse_psinf((_DUMPS / "PSINF.txt").read_text(encoding="ascii")).model_dump()
+
+    assert DeviceInfo.model_validate({**fields, "mac_address": "00-C0-02-12-34-56"}).mac_address == "00:c0:02:12:34:56"
+    with pytest.raises(ValidationError, match="is not a MAC address"):
+        DeviceInfo.model_validate({**fields, "mac_address": "00:c0:02:12:34"})
 
 
 def test_the_firmware_version_comes_from_the_syst_reply() -> None:

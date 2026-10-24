@@ -16,7 +16,7 @@ import rich_click as click
 from sercomm_printserver import __init__conf__
 
 from . import safe_console
-from .config_load import load_config, start_logging
+from .config_load import load_config, parse_command_line, start_logging
 from .constants import CLICK_CONTEXT_SETTINGS
 from .context import apply_traceback_preferences, store_cli_context
 from .typed_click import option, version_option
@@ -96,7 +96,9 @@ def cli(
         raise RuntimeError("Services factory not provided. This is a bug.")
     services = factory()
     # A load failure is recorded, not reported here: see config_load for who reports it.
-    config, config_error = load_config(services, profile=profile, env_file=env_file, set_overrides=set_overrides)
+    # The one parse of --set: everything after reads the parsed values, never the strings.
+    overrides = parse_command_line(profile, set_overrides)
+    config, config_error = load_config(services, profile=profile, env_file=env_file, set_overrides=overrides)
     config, config_error = start_logging(services, config, config_error, env_file=env_file)
     store_cli_context(
         ctx,
@@ -104,7 +106,7 @@ def cli(
         config=config,
         services=services,
         profile=profile,
-        set_overrides=set_overrides,
+        set_overrides=overrides,
         env_file=env_file,
         config_error=config_error,
     )

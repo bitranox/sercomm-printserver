@@ -14,6 +14,7 @@ A line that is not in this table is not modelled; it travels unchanged in
 
 from __future__ import annotations
 
+from enum import IntEnum
 from types import MappingProxyType
 from typing import Final
 
@@ -193,6 +194,48 @@ SNMP_LOCATION: Final = 6001
 SLOTS: Final = range(1, 10)
 
 
+class PrinterField(IntEnum):
+    """Parameter of a logical printer; the value is its offset from the printer's first line."""
+
+    PORT = 0
+    PRE_STRING = 1
+    POST_STRING = 2
+    CONVERT_LF = 3
+    NAME = 4
+
+
+class MailField(IntEnum):
+    """Mail parameter; the value is its offset from :data:`MAIL_SERVER`."""
+
+    SERVER = 0
+    ACCOUNT = 1
+    PASSWORD = 2
+    CHECK_INTERVAL = 3
+    BANNER = 4
+    REDIRECT_ACCOUNT = 5
+    PORT = 6
+    PRINT_EVERY_MAIL = 7
+    NOTIFY = 8
+    PRINTER_MODEL = 9
+
+
+class ManagerField(IntEnum):
+    """Parameter of an SNMP manager slot; the value is its offset inside the slot's block."""
+
+    ADDRESS = 1
+    ACCESS = 2
+    COMMUNITY = 3
+
+
+class TrapField(IntEnum):
+    """Parameter of an SNMP trap slot; the value is its offset inside the slot's block."""
+
+    ADDRESS = 1
+    SEVERITY = 2
+    COMMUNITY = 3
+    ENABLED = 4
+
+
 def port_name_line(slot: int) -> int:
     """Line of ``P<slot>_NAME``.
 
@@ -203,14 +246,14 @@ def port_name_line(slot: int) -> int:
     return 39 + slot
 
 
-def printer_line(number: int, offset: int) -> int:
-    """Line of a logical-printer parameter: offset 0 port, 1 pre-string, 2 post-string, 3 LF, 4 name.
+def printer_line(number: int, field: PrinterField) -> int:
+    """Line of ``field`` of logical printer ``number``.
 
     Example:
-        >>> printer_line(3, 0), printer_line(8, 3)
+        >>> printer_line(3, PrinterField.PORT), printer_line(8, PrinterField.CONVERT_LF)
         (140, 243)
     """
-    return 100 + 20 * (number - 1) + offset
+    return 100 + 20 * (number - 1) + field
 
 
 def parallel_mode_line(slot: int) -> int:
@@ -233,29 +276,34 @@ def slot_line(base: int, slot: int) -> int:
     return base + slot
 
 
-def mail_line(offset: int) -> int:
-    """Line of the mail parameter at ``offset`` (0 server ... 9 printer model)."""
-    return MAIL_SERVER + offset
-
-
-def manager_line(slot: int, offset: int) -> int:
-    """Line of an SNMP manager parameter: offset 1 address, 2 access, 3 community.
+def mail_line(field: MailField) -> int:
+    """Line of the mail parameter ``field``.
 
     Example:
-        >>> manager_line(4, 3)
+        >>> mail_line(MailField.PASSWORD)
+        4102
+    """
+    return MAIL_SERVER + field
+
+
+def manager_line(slot: int, field: ManagerField) -> int:
+    """Line of ``field`` of SNMP manager ``slot``.
+
+    Example:
+        >>> manager_line(4, ManagerField.COMMUNITY)
         6043
     """
-    return 6000 + 10 * slot + offset
+    return 6000 + 10 * slot + field
 
 
-def trap_line(slot: int, offset: int) -> int:
-    """Line of an SNMP trap parameter: offset 1 address, 2 severity, 3 community, 4 enabled.
+def trap_line(slot: int, field: TrapField) -> int:
+    """Line of ``field`` of SNMP trap ``slot``.
 
     Example:
-        >>> trap_line(1, 4)
+        >>> trap_line(1, TrapField.ENABLED)
         6114
     """
-    return 6100 + 10 * slot + offset
+    return 6100 + 10 * slot + field
 
 
 def known(line: int) -> bool:
@@ -306,6 +354,10 @@ __all__ = [
     "TCP_RETRY_INTERVAL",
     "TCP_WINS_SERVER",
     "TOKENS",
+    "MailField",
+    "ManagerField",
+    "PrinterField",
+    "TrapField",
     "known",
     "mail_line",
     "manager_line",

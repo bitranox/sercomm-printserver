@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from sercomm_printserver.composition import AppServices
     from sercomm_printserver.domain.endpoint import DeviceEndpoint
 
+    from ..constants import CommandName
+
 _P = TypeVar("_P", bound="BaseModel")
 _F = TypeVar("_F", bound="Callable[..., Any]")
 
@@ -102,7 +104,7 @@ def session_options(command: _F) -> _F:
 def run_device_command(
     ctx: click.Context,
     *,
-    command: str,
+    command: CommandName,
     flags: DeviceFlags,
     work: Callable[[PrintServer], _P],
     human: Callable[[_P], str],
@@ -118,7 +120,7 @@ def run_device_command(
 def run_endpoint_command(
     ctx: click.Context,
     *,
-    command: str,
+    command: CommandName,
     flags: DeviceFlags,
     work: Callable[[DeviceEndpoint, AppServices, DeviceSettings], _P],
     human: Callable[[_P], str],
@@ -131,7 +133,7 @@ def run_endpoint_command(
     mode = OutputMode.of(as_json=flags.as_json, as_json_bare=flags.as_json_bare)
     cli_ctx = get_cli_context(ctx)
     config = require_config(ctx, cli_ctx)
-    with lib_log_rich.runtime.bind(job_id=f"cli-{command}", extra={"command": command}):
+    with lib_log_rich.runtime.bind(job_id=f"cli-{command.value}", extra={"command": command.value}):
         try:
             settings = load_device_settings(config)
             endpoint = resolve_endpoint(settings, host=flags.host, timeout=flags.timeout)

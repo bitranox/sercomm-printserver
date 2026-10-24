@@ -16,12 +16,13 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from ipaddress import IPv4Network
+    from ipaddress import IPv4Address, IPv4Network
     from pathlib import Path
 
     from lib_layered_config import Config
 
     from ..domain.device_files import DeviceAction, ReadableFile, WritableFile
+    from ..domain.device_info import MacAddress
     from ..domain.endpoint import DeviceEndpoint, PrintJob
     from ..domain.enums import DeployTarget, OutputFormat
     from .discovery import ProbeHit
@@ -179,15 +180,15 @@ class NeighborTable(Protocol):
     removing entries needs administrator rights.
     """
 
-    def set_static(self, ip: str, mac: str) -> None:
+    def set_static(self, ip: IPv4Address, mac: MacAddress) -> None:
         """Map ``ip`` to ``mac`` permanently on the interface whose network holds ``ip``."""
         ...
 
-    def remove(self, ip: str) -> bool:
+    def remove(self, ip: IPv4Address) -> bool:
         """Remove the entry for ``ip``; True when there was one."""
         ...
 
-    def mac_of(self, ip: str) -> str | None:
+    def mac_of(self, ip: IPv4Address) -> MacAddress | None:
         """Return the MAC this host currently maps ``ip`` to, or None."""
         ...
 
@@ -218,7 +219,7 @@ class HostScanner(Protocol):
         """
         ...
 
-    def mac_address(self, host: str) -> str | None:
+    def mac_address(self, host: IPv4Address) -> MacAddress | None:
         """Return the host's MAC from this machine's neighbour cache, or None."""
         ...
 

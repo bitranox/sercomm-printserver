@@ -11,6 +11,7 @@ Contents:
     * :func:`log_variables_hidden` - remove every ``LOG_*`` variable for a block, then put each back.
     * :class:`InvalidLoggingConfigError` - the ``[lib_log_rich]`` section or a ``LOG_*`` variable
       cannot configure logging.
+    * :class:`LoggingConfigModel` - lib_log_rich's RuntimeConfig, validated once from the section.
     * :func:`_build_runtime_config` - constructs RuntimeConfig from layered sources.
 
 System Role:
@@ -29,8 +30,8 @@ from typing import TYPE_CHECKING, cast
 
 import lib_log_rich.runtime
 from dotenv import dotenv_values
-from lib_layered_config import Config
-from pydantic import BaseModel, ConfigDict, ValidationError
+from lib_layered_config import Config, Layer
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from sercomm_printserver import __init__conf__
 from sercomm_printserver.domain.errors import ConfigurationError
@@ -41,38 +42,60 @@ if TYPE_CHECKING:
     from pydantic_core import ErrorDetails
 
 
-class LoggingConfigModel(BaseModel):
-    """Pydantic model for [lib_log_rich] config section validation.
+class LoggingConfigModel(lib_log_rich.runtime.RuntimeConfig):
+    """lib_log_rich's ``RuntimeConfig``, validated once, straight from the ``[lib_log_rich]`` section.
 
-    Used at the boundary to parse configuration dictionaries into typed fields.
-    Extra fields are allowed to pass through to lib_log_rich.RuntimeConfig.
+    Every setting and every check is lib_log_rich's own; a key it does not know is ignored, as
+    ``RuntimeConfig`` ignores it. What this model adds is what the section needs on top:
+
+    * ``service`` defaults to the package name, also when the section gives it empty or null;
+      ``environment`` defaults to ``prod``.
+    * ``service`` and ``environment`` take a number as its text: lib_layered_config reads an
+      unquoted all-digit ``.env`` value as an int, and the conversion is lossless, so a
+      digit-only name stays valid instead of failing startup.
+    * A key the section sets to null is left unset, so lib_log_rich's default applies. A null
+      ``environment`` is the exception: it is refused as not text.
+    * An empty section (or none) is read as no settings at all.
 
     Example:
-        >>> model = LoggingConfigModel(service="myapp", environment="staging")
-        >>> model.service
-        'myapp'
-        >>> model.environment
-        'staging'
+        >>> model = LoggingConfigModel.model_validate({"service": "myapp", "environment": "staging"})
+        >>> model.service, model.environment
+        ('myapp', 'staging')
 
-        >>> default = LoggingConfigModel()
-        >>> default.environment
-        'prod'
+        >>> default = LoggingConfigModel.model_validate({})
+        >>> default.service == __init__conf__.name, default.environment
+        (True, 'prod')
+
+        >>> LoggingConfigModel.model_validate({"service": 4711, "console_theme": None}).service
+        '4711'
     """
 
-    service: str | None = None
-    environment: str = "prod"
+    service: str = Field(default=__init__conf__.name, coerce_numbers_to_str=True)
+    environment: str = Field(default="prod", coerce_numbers_to_str=True)
 
-    # lib_layered_config reads an unquoted all-digit .env value as an int; the conversion is
-    # lossless, so turning it back into text keeps a digit-only service or environment name valid
-    # instead of failing startup.
-    model_config = ConfigDict(extra="allow", coerce_numbers_to_str=True)
+    @model_validator(mode="before")
+    @classmethod
+    def _unset_nulls(cls, data: object) -> object:
+        """Read an empty section as no settings, and a null setting as one left unset."""
+        if not data:
+            return {}
+        if not isinstance(data, Mapping):
+            return data  # refused by the model itself: a section must be a table
+        section = cast("Mapping[object, object]", data)
+        return {key: value for key, value in section.items() if value is not None or key == "environment"}
+
+    @field_validator("service", mode="before")
+    @classmethod
+    def _blank_service_is_the_package(cls, value: object) -> object:
+        """An empty ``service`` names the package, as an absent one does."""
+        return __init__conf__.name if value == "" else value
 
 
 def _build_runtime_config(config: Config) -> lib_log_rich.runtime.RuntimeConfig:
     """Build RuntimeConfig from a Config object.
 
-    Centralizes the mapping from lib_layered_config to lib_log_rich
-    RuntimeConfig. Uses Pydantic for single-parse validation at the boundary.
+    The ``[lib_log_rich]`` section is validated once, into :class:`LoggingConfigModel`, which is
+    the ``RuntimeConfig`` lib_log_rich consumes.
 
     Args:
         config: Already-loaded layered configuration object.
@@ -80,27 +103,16 @@ def _build_runtime_config(config: Config) -> lib_log_rich.runtime.RuntimeConfig:
     Returns:
         Fully configured runtime settings ready for lib_log_rich.init().
 
+    Raises:
+        ValidationError: The section is not a table, or a setting has the wrong type.
+
     Note:
         Configuration is read from the [lib_log_rich] section. All parameters
         documented in defaultconfig.toml can be specified. Unspecified values
         use lib_log_rich's built-in defaults. The service and environment
         parameters default to package metadata when not configured.
     """
-    log_raw: object = config.get("lib_log_rich", default={})
-    parsed = LoggingConfigModel.model_validate(cast("dict[str, object]", log_raw) if log_raw else {})
-
-    # Apply defaults for required fields
-    service = parsed.service or __init__conf__.name
-    environment = parsed.environment
-
-    # Get extra fields passed through by Pydantic
-    extra_config = parsed.model_dump(exclude={"service", "environment"}, exclude_none=True)
-
-    return lib_log_rich.runtime.RuntimeConfig(
-        service=service,
-        environment=environment,
-        **extra_config,
-    )
+    return LoggingConfigModel.model_validate(_section(config))
 
 
 class InvalidLoggingConfigError(ConfigurationError):
@@ -132,8 +144,6 @@ class InvalidLoggingConfigError(ConfigurationError):
 
 #: The variables lib_log_rich reads itself; the only lines of a ``.env`` logging takes.
 _LOG_VARIABLE_PREFIX = "LOG_"
-#: The provenance layer name lib_layered_config gives the values it read from a ``.env``.
-_DOTENV_LAYER = "dotenv"
 
 
 def _problems(error: BaseException, section: object) -> list[str]:
@@ -239,7 +249,7 @@ def _configured_dotenv(config: Config) -> Path | None:
     """
     for key in config:
         source = config.origin(key)
-        if source is not None and source["layer"] == _DOTENV_LAYER and source["path"] is not None:
+        if source is not None and source["layer"] == Layer.DOTENV and source["path"] is not None:
             return Path(source["path"])
     return None
 
@@ -376,7 +386,7 @@ def init_logging(config: Config, *, dotenv_path: str | None = None) -> None:
         the highest precedence override for logging configuration.
 
     Example:
-        >>> from lib_layered_config import Config
+        >>> from lib_layered_config import Config, Layer
         >>> config = Config({"lib_log_rich": {"environment": "test"}}, {})
         >>> init_logging(config)  # doctest: +SKIP
     """
@@ -424,7 +434,8 @@ def check_logging_config(config: Config) -> None:
 
 
 def _section(config: Config) -> object:
-    """The ``[lib_log_rich]`` section as written, for telling its keys from pydantic's union tags."""
+    """The ``[lib_log_rich]`` section as written: the input of the one parse, and the reference
+    that tells the keys a reader wrote from pydantic's union tags in a refusal."""
     return config.get("lib_log_rich", default={})
 
 

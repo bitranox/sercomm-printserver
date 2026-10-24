@@ -106,12 +106,12 @@ def _port_names(writer: _Writer, names: tuple[SlotText, ...]) -> None:
 
 
 def _logical_printer(writer: _Writer, printer: LogicalPrinter) -> None:
-    writer.choice(cat.printer_line(printer.number, 0), printer.port)
-    writer.text(cat.printer_line(printer.number, 1), printer.pre_string)
-    writer.text(cat.printer_line(printer.number, 2), printer.post_string)
-    writer.yes_no(cat.printer_line(printer.number, 3), value=printer.convert_lf)
+    writer.choice(cat.printer_line(printer.number, cat.PrinterField.PORT), printer.port)
+    writer.text(cat.printer_line(printer.number, cat.PrinterField.PRE_STRING), printer.pre_string)
+    writer.text(cat.printer_line(printer.number, cat.PrinterField.POST_STRING), printer.post_string)
+    writer.yes_no(cat.printer_line(printer.number, cat.PrinterField.CONVERT_LF), value=printer.convert_lf)
     if printer.name is not None:
-        writer.text(cat.printer_line(printer.number, 4), printer.name)
+        writer.text(cat.printer_line(printer.number, cat.PrinterField.NAME), printer.name)
 
 
 def _slot_texts(writer: _Writer, base: int, items: tuple[SlotText, ...]) -> None:
@@ -165,16 +165,16 @@ def _tcp_ip(writer: _Writer, tcp_ip: TcpIp) -> None:
 def _mail(writer: _Writer, mail: Mail | None) -> None:
     if mail is None:
         return
-    writer.address(cat.mail_line(0), mail.server)
-    writer.text(cat.mail_line(1), mail.account)
-    writer.text(cat.mail_line(2), mail.password)
-    writer.integer(cat.mail_line(3), mail.check_interval)
-    writer.yes_no(cat.mail_line(4), value=mail.banner)
-    writer.text(cat.mail_line(5), mail.redirect_account)
-    writer.text(cat.mail_line(6), mail.port)
-    writer.yes_no(cat.mail_line(7), value=mail.print_every_mail)
-    writer.yes_no(cat.mail_line(8), value=mail.notify)
-    writer.text(cat.mail_line(9), mail.printer_model)
+    writer.address(cat.mail_line(cat.MailField.SERVER), mail.server)
+    writer.text(cat.mail_line(cat.MailField.ACCOUNT), mail.account)
+    writer.text(cat.mail_line(cat.MailField.PASSWORD), mail.password)
+    writer.integer(cat.mail_line(cat.MailField.CHECK_INTERVAL), mail.check_interval)
+    writer.yes_no(cat.mail_line(cat.MailField.BANNER), value=mail.banner)
+    writer.text(cat.mail_line(cat.MailField.REDIRECT_ACCOUNT), mail.redirect_account)
+    writer.text(cat.mail_line(cat.MailField.PORT), mail.port)
+    writer.yes_no(cat.mail_line(cat.MailField.PRINT_EVERY_MAIL), value=mail.print_every_mail)
+    writer.yes_no(cat.mail_line(cat.MailField.NOTIFY), value=mail.notify)
+    writer.text(cat.mail_line(cat.MailField.PRINTER_MODEL), mail.printer_model)
 
 
 def _smb(writer: _Writer, smb: Smb | None) -> None:
@@ -193,14 +193,14 @@ def _snmp(writer: _Writer, snmp: Snmp | None) -> None:
     writer.text(cat.SNMP_CONTACT, snmp.contact)
     writer.text(cat.SNMP_LOCATION, snmp.location)
     for manager in snmp.managers:
-        writer.address(cat.manager_line(manager.slot, 1), manager.address)
-        writer.choice(cat.manager_line(manager.slot, 2), manager.access)
-        writer.text(cat.manager_line(manager.slot, 3), manager.community)
+        writer.address(cat.manager_line(manager.slot, cat.ManagerField.ADDRESS), manager.address)
+        writer.choice(cat.manager_line(manager.slot, cat.ManagerField.ACCESS), manager.access)
+        writer.text(cat.manager_line(manager.slot, cat.ManagerField.COMMUNITY), manager.community)
     for trap in snmp.traps:
-        writer.address(cat.trap_line(trap.slot, 1), trap.address)
-        writer.integer(cat.trap_line(trap.slot, 2), trap.severity)
-        writer.text(cat.trap_line(trap.slot, 3), trap.community)
-        writer.switch(cat.trap_line(trap.slot, 4), value=trap.enabled)
+        writer.address(cat.trap_line(trap.slot, cat.TrapField.ADDRESS), trap.address)
+        writer.integer(cat.trap_line(trap.slot, cat.TrapField.SEVERITY), trap.severity)
+        writer.text(cat.trap_line(trap.slot, cat.TrapField.COMMUNITY), trap.community)
+        writer.switch(cat.trap_line(trap.slot, cat.TrapField.ENABLED), value=trap.enabled)
 
 
 __all__ = ["write_config"]

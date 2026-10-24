@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import lib_cli_exit_tools
+
+from sercomm_printserver.adapters.config.overrides import NO_OVERRIDES, ParsedOverrides
 
 if TYPE_CHECKING:
     import rich_click as click
@@ -13,8 +15,17 @@ if TYPE_CHECKING:
 
     from sercomm_printserver.composition import AppServices
 
-TracebackState = tuple[bool, bool]
-"""Captured traceback configuration: (traceback_enabled, force_color)."""
+
+class TracebackState(NamedTuple):
+    """Captured traceback configuration, restored by :func:`restore_traceback_state`.
+
+    Attributes:
+        enabled: Whether full tracebacks were enabled.
+        force_color: Whether tracebacks were forced to colour.
+    """
+
+    enabled: bool
+    force_color: bool
 
 
 @dataclass(slots=True)
@@ -27,8 +38,8 @@ class CLIContext:
             command that reads it asks through ``config_load.require_config``.
         services: All application services from the composition layer.
         profile: Optional configuration profile name.
-        set_overrides: Raw ``--set`` strings, reapplied when a subcommand reloads the
-            configuration with another profile.
+        set_overrides: The root's ``--set`` values, parsed once; reapplied when a subcommand
+            reloads the configuration with another profile, and read by ``config-deploy``.
         env_file: The root's ``--env-file``, for the same reload.
         config_error: Why the configuration could not be loaded, None when it loaded. The
             root records the exception; each command that reads the configuration reports it.
@@ -38,7 +49,7 @@ class CLIContext:
     config: Config
     services: AppServices
     profile: str | None = None
-    set_overrides: tuple[str, ...] = ()
+    set_overrides: ParsedOverrides = NO_OVERRIDES
     env_file: str | None = None
     config_error: Exception | None = None
 
@@ -50,7 +61,7 @@ def store_cli_context(
     config: Config,
     services: AppServices,
     profile: str | None = None,
-    set_overrides: tuple[str, ...] = (),
+    set_overrides: ParsedOverrides = NO_OVERRIDES,
     env_file: str | None = None,
     config_error: Exception | None = None,
 ) -> None:
@@ -62,8 +73,8 @@ def store_cli_context(
         config: Loaded layered configuration object for all subcommands.
         services: All application services from composition layer.
         profile: Optional configuration profile name.
-        set_overrides: Raw ``--set`` override strings for reapplication when
-            subcommands reload config with a different profile.
+        set_overrides: The parsed ``--set`` values, reapplied when subcommands reload
+            config with a different profile.
         env_file: The root's ``--env-file``, for the same reload.
         config_error: Why the configuration could not be loaded, None when it loaded.
 
@@ -136,16 +147,16 @@ def snapshot_traceback_state() -> TracebackState:
     """Capture the current traceback configuration for later restoration.
 
     Returns:
-        Tuple of (traceback_enabled, force_color) booleans.
+        The two traceback flags as they are now.
 
     Example:
         >>> state = snapshot_traceback_state()
-        >>> isinstance(state, tuple) and len(state) == 2
+        >>> isinstance(state.enabled, bool) and isinstance(state.force_color, bool)
         True
     """
-    return (
-        bool(getattr(lib_cli_exit_tools.config, "traceback", False)),
-        bool(getattr(lib_cli_exit_tools.config, "traceback_force_color", False)),
+    return TracebackState(
+        enabled=bool(getattr(lib_cli_exit_tools.config, "traceback", False)),
+        force_color=bool(getattr(lib_cli_exit_tools.config, "traceback_force_color", False)),
     )
 
 
@@ -153,17 +164,17 @@ def restore_traceback_state(state: TracebackState) -> None:
     """Reapply a previously captured traceback configuration.
 
     Args:
-        state: Tuple from :func:`snapshot_traceback_state`.
+        state: The flags :func:`snapshot_traceback_state` captured.
 
     Example:
         >>> original = snapshot_traceback_state()
         >>> apply_traceback_preferences(True)
         >>> restore_traceback_state(original)
-        >>> lib_cli_exit_tools.config.traceback == original[0]
+        >>> lib_cli_exit_tools.config.traceback == original.enabled
         True
     """
-    lib_cli_exit_tools.config.traceback = state[0]
-    lib_cli_exit_tools.config.traceback_force_color = state[1]
+    lib_cli_exit_tools.config.traceback = state.enabled
+    lib_cli_exit_tools.config.traceback_force_color = state.force_color
 
 
 __all__ = [

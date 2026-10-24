@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import rich_click as click
 
 from sercomm_printserver.adapters import cli as cli_mod
+from sercomm_printserver.adapters.cli.config_load import parse_command_line
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -165,3 +167,17 @@ def test_when_no_set_overrides_config_is_unchanged(
 
     assert result.exit_code == 0
     assert "WARNING" in result.output
+
+
+@pytest.mark.os_agnostic
+def test_the_parsed_set_values_keep_the_tree_and_the_keys() -> None:
+    parsed = parse_command_line(None, ("a.b=1", "a.c.d=x", "a.b=2"))
+
+    assert parsed.tree == {"a": {"b": 2, "c": {"d": "x"}}}
+    assert parsed.keys == frozenset({"a.b", "a.c.d"})
+
+
+@pytest.mark.os_agnostic
+def test_parsing_the_command_line_judges_the_profile_before_the_set_values() -> None:
+    with pytest.raises(click.UsageError, match=r"\.\./x"):
+        parse_command_line("../x", ("noequals",))

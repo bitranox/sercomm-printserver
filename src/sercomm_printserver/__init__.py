@@ -29,7 +29,7 @@ from .application.print_server import ConfigWriteResult, PrintServer
 from .composition import get_config, open_print_server
 from .domain.config_codec import ConfigChange, parse_config, render_config, with_value
 from .domain.config_model import DeviceConfig
-from .domain.device_info import DeviceInfo
+from .domain.device_info import DeviceInfo, MacAddress, normalise_mac
 from .domain.endpoint import DeviceEndpoint, PrintJob
 from .domain.errors import (
     AuthenticationRequiredError,
@@ -84,6 +84,7 @@ __all__ = [
     "DiscoveryReport",
     "HostPrivilegeError",
     "IpscoutNeighborTable",
+    "MacAddress",
     "NeighborTableError",
     "PortStatus",
     "PrintJob",
@@ -91,6 +92,7 @@ __all__ = [
     "arp_trick",
     "discover_print_servers",
     "get_config",
+    "normalise_mac",
     "open_print_server",
     "parse_config",
     "print_info",

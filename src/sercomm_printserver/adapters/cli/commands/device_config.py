@@ -9,16 +9,17 @@ The app's own settings are the separate ``config`` command.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import rich_click as click
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializerFunctionWrapHandler, model_serializer
 
-from sercomm_printserver.domain.config_codec import ConfigChange, find_line, parse_config, with_value
+from sercomm_printserver.application.print_server import ConfigWriteResult
+from sercomm_printserver.domain.config_codec import find_line, parse_config, with_value
 from sercomm_printserver.domain.config_model import DeviceConfig
 from sercomm_printserver.domain.errors import ConfirmationRequiredError
 
-from ..constants import CLICK_CONTEXT_SETTINGS
+from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import argument, option
 from ._device import DeviceFlags, device_options, run_device_command
 
@@ -44,13 +45,20 @@ class ParameterReport(BaseModel, frozen=True):
 
 
 class ChangeReport(BaseModel, frozen=True):
-    """Answer of ``device-config set`` and ``import``."""
+    """Answer of ``device-config set`` and ``import``: what the write did, on which host.
+
+    The write's own result is kept whole rather than copied field by field, and its fields are
+    dumped beside ``host`` so the envelope keeps the flat
+    ``{host, changes, written, applied, reachable_at}`` shape scripts read.
+    """
 
     host: str
-    changes: tuple[ConfigChange, ...]
-    written: bool
-    applied: bool
-    reachable_at: str | None
+    result: ConfigWriteResult
+
+    @model_serializer(mode="wrap")
+    def _dump_flat(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        dumped: dict[str, Any] = handler(self)
+        return {"host": dumped["host"], **dumped["result"]}
 
 
 class ExportReport(BaseModel, frozen=True):
@@ -84,7 +92,7 @@ def cli_device_config_show(
 
     run_device_command(
         ctx,
-        command="device-config show",
+        command=CommandName.DEVICE_CONFIG_SHOW,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=lambda report: report.text.rstrip("\n"),
@@ -108,7 +116,7 @@ def cli_device_config_get(
 
     run_device_command(
         ctx,
-        command="device-config get",
+        command=CommandName.DEVICE_CONFIG_GET,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=lambda report: report.value,
@@ -150,7 +158,11 @@ def cli_device_config_set(
         return _write(server, new, yes=yes, apply=not no_apply)
 
     run_device_command(
-        ctx, command="device-config set", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
+        ctx,
+        command=CommandName.DEVICE_CONFIG_SET,
+        flags=_flags(host, timeout, as_json, as_json_bare),
+        work=work,
+        human=_render,
     )
 
 
@@ -170,7 +182,7 @@ def cli_device_config_export(
 
     run_device_command(
         ctx,
-        command="device-config export",
+        command=CommandName.DEVICE_CONFIG_EXPORT,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=lambda report: f"{report.host}: wrote {report.size} bytes to {report.path}",
@@ -202,7 +214,7 @@ def cli_device_config_import(
 
     run_device_command(
         ctx,
-        command="device-config import",
+        command=CommandName.DEVICE_CONFIG_IMPORT,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=_render,
@@ -214,25 +226,19 @@ def _write(server: PrintServer, new: DeviceConfig, *, yes: bool, apply: bool) ->
         changes = server.plan_config(new)
         listing = "; ".join(f"{change.token}: {change.old!r} -> {change.new!r}" for change in changes)
         raise ConfirmationRequiredError(f"not written, pass --yes to write: {listing or 'no change'}")
-    result = server.write_config(new, apply=apply)
-    return ChangeReport(
-        host=server.endpoint.host,
-        changes=result.changes,
-        written=result.written,
-        applied=result.applied,
-        reachable_at=result.reachable_at,
-    )
+    return ChangeReport(host=server.endpoint.host, result=server.write_config(new, apply=apply))
 
 
 def _render(report: ChangeReport) -> str:
-    if not report.written:
+    result = report.result
+    if not result.written:
         return f"{report.host}: nothing to change"
-    lines = [f"{change.token}: {change.old!r} -> {change.new!r}" for change in report.changes]
-    lines.append(f"{report.host}: written{', device restarted' if report.applied else ''}")
-    if report.applied and report.reachable_at is None:
+    lines = [f"{change.token}: {change.old!r} -> {change.new!r}" for change in result.changes]
+    lines.append(f"{report.host}: written{', device restarted' if result.applied else ''}")
+    if result.applied and result.reachable_at is None:
         lines.append("the device takes its address from DHCP now; find it with: sercomm-printserver discover")
-    elif report.reachable_at != report.host:
-        lines.append(f"the device now answers at {report.reachable_at}")
+    elif result.reachable_at != report.host:
+        lines.append(f"the device now answers at {result.reachable_at}")
     return "\n".join(lines)
 
 

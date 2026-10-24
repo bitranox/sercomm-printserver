@@ -10,7 +10,7 @@ import rich_click as click
 from sercomm_printserver.application.discovery import DiscoveryReport, discover
 
 from .. import safe_console
-from ..constants import CLICK_CONTEXT_SETTINGS
+from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..context import get_cli_context
 from ..envelope import Envelope, OutputMode, report_failure, write_envelope
 from ..typed_click import option
@@ -45,15 +45,19 @@ def cli_discover(
     """Find print servers: every host answering FTP with "220 Print Server Ready."."""
     mode = OutputMode.of(as_json=as_json, as_json_bare=as_json_bare)
     scanner = get_cli_context(ctx).services.host_scanner
-    with lib_log_rich.runtime.bind(job_id="cli-discover", extra={"command": "discover"}):
+    with lib_log_rich.runtime.bind(
+        job_id=f"cli-{CommandName.DISCOVER.value}", extra={"command": CommandName.DISCOVER.value}
+    ):
         try:
             chosen = [IPv4Network(network, strict=False) for network in networks]
             report = discover(scanner, networks=chosen or None, timeout=timeout)
         except ValueError as error:
-            report_failure(error, command="discover", mode=mode)
+            report_failure(error, command=CommandName.DISCOVER, mode=mode)
             ctx.exit(exit_code_for(error))
     if mode.machine:
-        write_envelope(Envelope.of(command="discover", payload=report, skipped=list(report.skipped)), mode=mode)
+        write_envelope(
+            Envelope.of(command=CommandName.DISCOVER, payload=report, skipped=list(report.skipped)), mode=mode
+        )
         return
     safe_console.echo(_render(report))
     for note in report.skipped:

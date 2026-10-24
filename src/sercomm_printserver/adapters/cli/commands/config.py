@@ -28,7 +28,6 @@ from lib_layered_config import (
 
 from sercomm_printserver import __init__conf__
 from sercomm_printserver.adapters.config.loader import validate_profile
-from sercomm_printserver.adapters.config.overrides import nest_overrides
 from sercomm_printserver.domain.enums import DeployTarget, OutputFormat
 
 from .. import safe_console
@@ -387,7 +386,7 @@ def _permission_overrides(cli_ctx: CLIContext) -> Mapping[str, object] | None:
     (``...user_file.x=1``) arrives as a table value, which the library refuses by name.
 
     Args:
-        cli_ctx: The state the root group stored; only its ``--set`` strings are read.
+        cli_ctx: The state the root group stored; only its parsed ``--set`` tree is read.
 
     Returns:
         The section's overrides, or None when no ``--set`` names the section.
@@ -397,8 +396,7 @@ def _permission_overrides(cli_ctx: CLIContext) -> Mapping[str, object] | None:
             (``--set lib_layered_config.default_permissions=5`` or ``=null``); one stderr
             line names it, exit 78, nothing is deployed.
     """
-    tree, _ = nest_overrides(cli_ctx.set_overrides)
-    section = tree.get(_LAYERED_CONFIG_SECTION, {})
+    section = cli_ctx.set_overrides.tree.get(_LAYERED_CONFIG_SECTION, {})
     if _PERMISSIONS_KEY not in section:
         return None
     value = section[_PERMISSIONS_KEY]

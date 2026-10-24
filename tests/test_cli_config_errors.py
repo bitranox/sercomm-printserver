@@ -282,6 +282,38 @@ def test_conflicting_set_overrides_are_a_usage_error(cli_runner: CliRunner, comm
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("command", [["info"], ["config"]], ids=["info", "config"])
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        ("noequals", "Invalid override 'noequals': must contain '='"),
+        ("=x", "Invalid override '=x': key must contain at least one dot (SECTION.KEY)"),
+        ("nodot=1", "Invalid override 'nodot=1': key must contain at least one dot (SECTION.KEY)"),
+        (".k=1", "Invalid override '.k=1': section name is empty"),
+        ("device.=1", "Invalid override 'device.=1': key path contains empty component"),
+        ("device..x=1", "Invalid override 'device..x=1': key path contains empty component"),
+    ],
+    ids=["no-equals", "empty-key", "no-dot", "empty-section", "empty-key-part", "empty-middle-part"],
+)
+def test_each_malformed_set_is_a_usage_error_naming_the_fault(
+    cli_runner: CliRunner, command: list[str], raw: str, message: str
+) -> None:
+    result = cli_runner.invoke(cli_mod.cli, ["--set", raw, *command], obj=build_testing)
+
+    assert result.exit_code == 2, result.output
+    assert message in result.output
+
+
+@pytest.mark.os_agnostic
+def test_a_command_line_wrong_in_both_profile_and_set_names_the_profile(cli_runner: CliRunner) -> None:
+    result = cli_runner.invoke(cli_mod.cli, ["--profile", "../x", "--set", "noequals", "config"], obj=build_testing)
+
+    assert result.exit_code == 2, result.output
+    assert "../x" in result.output
+    assert "noequals" not in result.output
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     "args",
     [

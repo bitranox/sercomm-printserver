@@ -220,7 +220,7 @@ def test_discovery_finds_the_device_with_its_mac(device: _TestDevice) -> None:
     hits = scanner.probe_ftp([str(device.host)], timeout=3.0)
 
     assert [hit.greeting for hit in hits] == ["220 Print Server Ready."]
-    assert scanner.mac_address(str(device.host)) == device.mac
+    assert scanner.mac_address(device.host) == device.mac
 
 
 def test_tftp_reads_the_same_configuration_as_ftp(server: PrintServer, device: _TestDevice) -> None:
@@ -248,10 +248,11 @@ def test_the_arp_trick_reaches_the_device_at_a_borrowed_address(device: _TestDev
         IpscoutNeighborTable(),
         open_print_server,
         endpoint=DeviceEndpoint(host=borrowed, login=device.box_name),
+        ip=IPv4Address(borrowed),
         mac=device.mac.upper().replace(":", "-"),
     )
 
-    assert (result.device.default_name, result.borrowed_ip) == (device.default_name, borrowed)
+    assert (result.device.default_name, str(result.borrowed_ip)) == (device.default_name, borrowed)
     assert str(result.device.ip_address) == str(device.host)
     permanent = [
         entry

@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from . import safe_console
+from .constants import CommandName
 
 
 class OutputMode(BaseModel):
@@ -48,19 +49,21 @@ class Envelope(BaseModel):
     """
 
     ok: bool
-    command: str
+    command: CommandName
     data: dict[str, Any]
     skipped: list[str] = []
 
     @classmethod
-    def of(cls, *, command: str, payload: BaseModel, ok: bool = True, skipped: list[str] | None = None) -> Envelope:
+    def of(
+        cls, *, command: CommandName, payload: BaseModel, ok: bool = True, skipped: list[str] | None = None
+    ) -> Envelope:
         """Build the envelope around ``payload``, dumped in JSON mode.
 
         Example:
             >>> class Answer(BaseModel):
             ...     value: int
-            >>> Envelope.of(command="x", payload=Answer(value=1)).model_dump_json()
-            '{"ok":true,"command":"x","data":{"value":1},"skipped":[]}'
+            >>> Envelope.of(command=CommandName.FIRMWARE, payload=Answer(value=1)).model_dump_json()
+            '{"ok":true,"command":"firmware","data":{"value":1},"skipped":[]}'
         """
         return cls(ok=ok, command=command, data=payload.model_dump(mode="json"), skipped=skipped or [])
 
@@ -69,7 +72,7 @@ class ErrorEnvelope(BaseModel):
     """What a command reports when it was refused or failed."""
 
     ok: bool = False
-    command: str
+    command: CommandName
     error: str
     message: str
 
@@ -79,7 +82,7 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     safe_console.echo(document.model_dump_json(indent=mode.indent))
 
 
-def report_failure(error: Exception, *, command: str, mode: OutputMode) -> None:
+def report_failure(error: Exception, *, command: CommandName, mode: OutputMode) -> None:
     """Report a refusal or failure: an error envelope in machine mode, one line on stderr otherwise."""
     if mode.machine:
         write_envelope(ErrorEnvelope(command=command, error=type(error).__name__, message=str(error)), mode=mode)

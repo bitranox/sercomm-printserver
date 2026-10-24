@@ -18,7 +18,7 @@ from pydantic import BaseModel, SecretStr
 from sercomm_printserver.domain.errors import ConfirmationRequiredError
 from sercomm_printserver.domain.port_status import PortStatus
 
-from ..constants import CLICK_CONTEXT_SETTINGS
+from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import argument, option
 from ._device import DeviceFlags, device_options, run_device_command
 
@@ -42,10 +42,13 @@ class StatusReport(BaseModel, frozen=True):
 
 
 class ActionReport(BaseModel, frozen=True):
-    """Answer of a command that triggered a device action."""
+    """Answer of a command that triggered a device action.
+
+    ``action`` is the command that ran, so the JSON names the action by the path a script typed.
+    """
 
     host: str
-    action: str
+    action: CommandName
     done: bool
 
 
@@ -61,9 +64,9 @@ def _flags(host: str | None, timeout: float | None, as_json: bool, as_json_bare:
     return DeviceFlags(host=host, timeout=timeout, as_json=as_json, as_json_bare=as_json_bare)
 
 
-def _require_yes(yes: bool, *, what: str) -> None:
+def _require_yes(yes: bool, *, what: CommandName) -> None:
     if not yes:
-        raise ConfirmationRequiredError(f"{what} changes the device; pass --yes to do it")
+        raise ConfirmationRequiredError(f"{what.value} changes the device; pass --yes to do it")
 
 
 # ---------------------------------------------------------------------- reading
@@ -82,7 +85,7 @@ def cli_firmware(
 
     run_device_command(
         ctx,
-        command="firmware",
+        command=CommandName.FIRMWARE,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=lambda report: f"{report.host}: firmware {report.firmware}",
@@ -98,7 +101,7 @@ def cli_device_info(
     """Show the device's self-description (PSINF): names, MAC, firmware, addresses."""
     run_device_command(
         ctx,
-        command="device-info",
+        command=CommandName.DEVICE_INFO,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=lambda server: server.info(),
         human=_render_info,
@@ -131,7 +134,11 @@ def cli_status(
         return StatusReport(host=server.endpoint.host, ports=server.status())
 
     run_device_command(
-        ctx, command="status", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render_status
+        ctx,
+        command=CommandName.STATUS,
+        flags=_flags(host, timeout, as_json, as_json_bare),
+        work=work,
+        human=_render_status,
     )
 
 
@@ -140,7 +147,7 @@ def _render_status(report: StatusReport) -> str:
     for port in report.ports:
         held = port.occupied_by or "-"
         lines.append(
-            f"{port.port:<5} {port.type.value:<9} {port.state.value:<9} {port.printer_status.value:<13} {held}"
+            f"{port.port.value:<5} {port.type.value:<9} {port.state.value:<9} {port.printer_status.value:<13} {held}"
         )
     return "\n".join(lines)
 
@@ -169,7 +176,7 @@ def cli_queue(
 
     run_device_command(
         ctx,
-        command="queue",
+        command=CommandName.QUEUE,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=lambda report: report.state.rstrip("\n"),
@@ -206,12 +213,16 @@ def cli_reset(
     """Restart the print server and wait until it answers again; a stored configuration takes effect."""
 
     def work(server: PrintServer) -> ActionReport:
-        _require_yes(yes, what="reset")
+        _require_yes(yes, what=CommandName.RESET)
         server.reset(wait=not no_wait)
-        return ActionReport(host=server.endpoint.host, action="reset", done=True)
+        return ActionReport(host=server.endpoint.host, action=CommandName.RESET, done=True)
 
     run_device_command(
-        ctx, command="reset", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render_action
+        ctx,
+        command=CommandName.RESET,
+        flags=_flags(host, timeout, as_json, as_json_bare),
+        work=work,
+        human=_render_action,
     )
 
 
@@ -233,13 +244,13 @@ def cli_factory_default(
     """Restore factory settings. The device then has IP 0.0.0.0 and leaves the network."""
 
     def work(server: PrintServer) -> ActionReport:
-        _require_yes(yes, what="factory-default")
+        _require_yes(yes, what=CommandName.FACTORY_DEFAULT)
         server.factory_default(confirm_name=confirm_name)
-        return ActionReport(host=server.endpoint.host, action="factory-default", done=True)
+        return ActionReport(host=server.endpoint.host, action=CommandName.FACTORY_DEFAULT, done=True)
 
     run_device_command(
         ctx,
-        command="factory-default",
+        command=CommandName.FACTORY_DEFAULT,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=_render_action,
@@ -264,12 +275,16 @@ def cli_store_ip(
     """Store the address the device answers on now as its static IP (SETIP)."""
 
     def work(server: PrintServer) -> ActionReport:
-        _require_yes(yes, what="store-ip")
+        _require_yes(yes, what=CommandName.STORE_IP)
         server.store_ip(confirm_name=confirm_name)
-        return ActionReport(host=server.endpoint.host, action="store-ip", done=True)
+        return ActionReport(host=server.endpoint.host, action=CommandName.STORE_IP, done=True)
 
     run_device_command(
-        ctx, command="store-ip", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render_action
+        ctx,
+        command=CommandName.STORE_IP,
+        flags=_flags(host, timeout, as_json, as_json_bare),
+        work=work,
+        human=_render_action,
     )
 
 
@@ -302,12 +317,16 @@ def cli_password_set(
     """Set a new login password (at most 19 characters). Never pass it on the command line."""
 
     def work(server: PrintServer) -> ActionReport:
-        _require_yes(yes, what="password set")
+        _require_yes(yes, what=CommandName.CREDENTIAL_SET)
         server.set_password(_new_password(from_file))
-        return ActionReport(host=server.endpoint.host, action="password set", done=True)
+        return ActionReport(host=server.endpoint.host, action=CommandName.CREDENTIAL_SET, done=True)
 
     run_device_command(
-        ctx, command="password set", flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render_action
+        ctx,
+        command=CommandName.CREDENTIAL_SET,
+        flags=_flags(host, timeout, as_json, as_json_bare),
+        work=work,
+        human=_render_action,
     )
 
 
@@ -329,13 +348,13 @@ def cli_password_clear(
     """Clear the login password (PASSRESET)."""
 
     def work(server: PrintServer) -> ActionReport:
-        _require_yes(yes, what="password clear")
+        _require_yes(yes, what=CommandName.CREDENTIAL_CLEAR)
         server.clear_password(confirm_name=confirm_name)
-        return ActionReport(host=server.endpoint.host, action="password clear", done=True)
+        return ActionReport(host=server.endpoint.host, action=CommandName.CREDENTIAL_CLEAR, done=True)
 
     run_device_command(
         ctx,
-        command="password clear",
+        command=CommandName.CREDENTIAL_CLEAR,
         flags=_flags(host, timeout, as_json, as_json_bare),
         work=work,
         human=_render_action,
@@ -353,7 +372,7 @@ def _new_password(from_file: Path | None) -> SecretStr:
 
 
 def _render_action(report: ActionReport) -> str:
-    return f"{report.host}: {report.action} done"
+    return f"{report.host}: {report.action.value} done"
 
 
 __all__ = [
