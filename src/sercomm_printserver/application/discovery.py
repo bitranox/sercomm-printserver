@@ -43,12 +43,20 @@ class DiscoveredDevice(BaseModel, frozen=True, extra="forbid"):
 
 
 class DiscoveryReport(BaseModel, frozen=True, extra="forbid"):
-    """What a discovery searched and found."""
+    """What a discovery searched and found.
+
+    Attributes:
+        networks: The networks whose host addresses were probed.
+        probed: How many addresses were probed.
+        devices: The print servers found, ordered by address.
+        skipped: The local networks left out because each alone holds more than
+            :data:`MAX_HOSTS` addresses; empty when the networks were named.
+    """
 
     networks: tuple[IPv4Network, ...]
     probed: int
     devices: tuple[DiscoveredDevice, ...]
-    skipped: tuple[str, ...] = ()
+    skipped: tuple[IPv4Network, ...] = ()
 
 
 def discover(scanner: HostScanner, *, networks: Sequence[IPv4Network] | None, timeout: float) -> DiscoveryReport:
@@ -61,24 +69,20 @@ def discover(scanner: HostScanner, *, networks: Sequence[IPv4Network] | None, ti
     Raises:
         ValueError: The named networks hold more than :data:`MAX_HOSTS` addresses together.
     """
-    skipped: list[str] = []
+    skipped: tuple[IPv4Network, ...] = ()
     if networks:
         chosen = tuple(networks)
     else:
         local = scanner.local_networks()
         chosen = tuple(network for network in local if network.num_addresses - 2 <= MAX_HOSTS)
-        skipped = [
-            f"{network}: more than {MAX_HOSTS} addresses, name it with --network"
-            for network in local
-            if network not in chosen
-        ]
+        skipped = tuple(network for network in local if network not in chosen)
     hosts = [str(host) for network in chosen for host in network.hosts()]
     if len(hosts) > MAX_HOSTS:
         raise ValueError(f"{len(hosts)} addresses to probe, more than {MAX_HOSTS}; name a smaller network")
     hits = scanner.probe_ftp(hosts, timeout=timeout)
     family = sorted((hit for hit in hits if hit.greeting.startswith(PRINT_SERVER_GREETING)), key=lambda hit: hit.host)
     devices = tuple(_device(hit, scanner) for hit in family)
-    return DiscoveryReport(networks=chosen, probed=len(hosts), devices=devices, skipped=tuple(skipped))
+    return DiscoveryReport(networks=chosen, probed=len(hosts), devices=devices, skipped=skipped)
 
 
 def _device(hit: ProbeHit, scanner: HostScanner) -> DiscoveredDevice:

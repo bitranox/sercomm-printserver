@@ -15,7 +15,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   `password set/clear`, `store-ip`, `factory-default`, and `print lpd/raw`. Every one answers with
   `--json` / `--json-bare`; changes need `--yes`, the dangerous ones also `--confirm-name`.
   `print lpd/raw` report the transport (`lpd` or `raw`) and its queue or printer number as
-  separate JSON fields.
+  separate JSON fields. `discover` lists each local network it left out (more than 4096
+  addresses) as a network string in `data.skipped`; the envelope's `skipped` says why.
 - `arp reach/assign-ip/factory-reset`: reach a device by its MAC through a borrowed address (the
   vendor's ARP trick), with the static ARP entry written natively through ipscout and removed
   again in every case. Needs root or `CAP_NET_ADMIN`, root on macOS, Administrator on Windows
@@ -27,7 +28,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 - Python library surface: `open_print_server`, `discover_print_servers`, `PrintServer`,
   `DeviceEndpoint`, `PrintJob`, `arp_trick`, `IpscoutNeighborTable`, `MacAddress`,
   `normalise_mac` and the domain exceptions. The `arp_trick` functions take the borrowed address
-  as `ip: IPv4Address`; MACs are normalised once, on entry.
+  as `ip: IPv4Address`; MACs are normalised once, on entry. `DiscoveryReport.skipped` holds the
+  left-out networks as `IPv4Network` values.
 - Claude Code plugin with the `sercomm-printserver` skill.
 - End-to-end tests against a real device (`-m device`, opt-in), which save the device's
   configuration before any change and restore it.

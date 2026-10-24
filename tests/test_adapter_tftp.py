@@ -110,6 +110,7 @@ def test_an_error_packet_is_a_response_error_quoting_the_message() -> None:
     [
         (b"\x00\x03", "malformed TFTP packet"),
         (ack_packet(1), "opcode 4 where DATA was expected"),
+        (b"\x00\x09\x00\x01", "opcode 9 where DATA was expected"),
         (data_packet(1, b"W" * 513), "513-byte TFTP block"),
     ],
 )

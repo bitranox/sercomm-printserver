@@ -66,7 +66,7 @@ class _Writer:
 def write_config(config: DeviceConfig) -> tuple[ConfigLine, ...]:
     """Return the CONFIG lines for ``config``, sorted by line number."""
     writer = _Writer()
-    writer.text(cat.BOX_NAME, config.box_name)
+    writer.text(cat.ParameterLine.BOX_NAME, config.box_name)
     _protocols(writer, config)
     _serial(writer, config.serial)
     _port_names(writer, config.port_names)
@@ -84,20 +84,20 @@ def write_config(config: DeviceConfig) -> tuple[ConfigLine, ...]:
 
 
 def _protocols(writer: _Writer, config: DeviceConfig) -> None:
-    writer.switch(cat.PROTOCOL_IPX_SPX, value=config.protocols.ipx_spx)
-    writer.switch(cat.PROTOCOL_TCP_IP, value=config.protocols.tcp_ip)
-    writer.switch(cat.PROTOCOL_APPLETALK, value=config.protocols.appletalk)
-    writer.switch(cat.PROTOCOL_NETBEUI, value=config.protocols.netbeui)
+    writer.switch(cat.ParameterLine.PROTOCOL_IPX_SPX, value=config.protocols.ipx_spx)
+    writer.switch(cat.ParameterLine.PROTOCOL_TCP_IP, value=config.protocols.tcp_ip)
+    writer.switch(cat.ParameterLine.PROTOCOL_APPLETALK, value=config.protocols.appletalk)
+    writer.switch(cat.ParameterLine.PROTOCOL_NETBEUI, value=config.protocols.netbeui)
 
 
 def _serial(writer: _Writer, serial: SerialPort | None) -> None:
     if serial is None:
         return
-    writer.int_choice(cat.SERIAL_BAUD_RATE, serial.baud_rate)
-    writer.int_choice(cat.SERIAL_STOP_BITS, serial.stop_bits)
-    writer.choice(cat.SERIAL_PARITY, serial.parity)
-    writer.int_choice(cat.SERIAL_DATA_BITS, serial.data_bits)
-    writer.choice(cat.SERIAL_HANDSHAKE, serial.handshake)
+    writer.int_choice(cat.ParameterLine.SERIAL_BAUD_RATE, serial.baud_rate)
+    writer.int_choice(cat.ParameterLine.SERIAL_STOP_BITS, serial.stop_bits)
+    writer.choice(cat.ParameterLine.SERIAL_PARITY, serial.parity)
+    writer.int_choice(cat.ParameterLine.SERIAL_DATA_BITS, serial.data_bits)
+    writer.choice(cat.ParameterLine.SERIAL_HANDSHAKE, serial.handshake)
 
 
 def _port_names(writer: _Writer, names: tuple[SlotText, ...]) -> None:
@@ -114,52 +114,52 @@ def _logical_printer(writer: _Writer, printer: LogicalPrinter) -> None:
         writer.text(cat.printer_line(printer.number, cat.PrinterField.NAME), printer.name)
 
 
-def _slot_texts(writer: _Writer, base: int, items: tuple[SlotText, ...]) -> None:
+def _slot_texts(writer: _Writer, block: cat.SlotBlock, items: tuple[SlotText, ...]) -> None:
     for item in items:
-        writer.text(cat.slot_line(base, item.slot), item.value)
+        writer.text(cat.slot_line(block, item.slot), item.value)
 
 
-def _slot_flags(writer: _Writer, base: int, items: tuple[SlotFlag, ...]) -> None:
+def _slot_flags(writer: _Writer, block: cat.SlotBlock, items: tuple[SlotFlag, ...]) -> None:
     for item in items:
-        writer.yes_no(cat.slot_line(base, item.slot), value=item.enabled)
+        writer.yes_no(cat.slot_line(block, item.slot), value=item.enabled)
 
 
 def _netware(writer: _Writer, netware: NetWare | None) -> None:
     if netware is None:
         return
-    writer.choice(cat.NETWARE_MODE, netware.mode)
-    writer.switch(cat.NETWARE_FRAME_ETHERNET_II, value=netware.frame_ethernet_ii)
-    writer.switch(cat.NETWARE_FRAME_802_2, value=netware.frame_802_2)
-    writer.switch(cat.NETWARE_FRAME_802_3, value=netware.frame_802_3)
-    writer.switch(cat.NETWARE_FRAME_SNAP, value=netware.frame_snap)
-    writer.text(cat.NETWARE_FILE_SERVER, netware.file_server)
-    writer.yes_no(cat.NETWARE_NOTIFY, value=netware.notify)
-    writer.integer(cat.NETWARE_POLL_INTERVAL, netware.poll_interval)
+    writer.choice(cat.ParameterLine.NETWARE_MODE, netware.mode)
+    writer.switch(cat.ParameterLine.NETWARE_FRAME_ETHERNET_II, value=netware.frame_ethernet_ii)
+    writer.switch(cat.ParameterLine.NETWARE_FRAME_802_2, value=netware.frame_802_2)
+    writer.switch(cat.ParameterLine.NETWARE_FRAME_802_3, value=netware.frame_802_3)
+    writer.switch(cat.ParameterLine.NETWARE_FRAME_SNAP, value=netware.frame_snap)
+    writer.text(cat.ParameterLine.NETWARE_FILE_SERVER, netware.file_server)
+    writer.yes_no(cat.ParameterLine.NETWARE_NOTIFY, value=netware.notify)
+    writer.integer(cat.ParameterLine.NETWARE_POLL_INTERVAL, netware.poll_interval)
     if netware.nds_tree is not None:
-        writer.text(cat.NETWARE_NDS_TREE, netware.nds_tree)
+        writer.text(cat.ParameterLine.NETWARE_NDS_TREE, netware.nds_tree)
     if netware.nds_context is not None:
-        writer.text(cat.NETWARE_NDS_CONTEXT, netware.nds_context)
-    _slot_texts(writer, 2500, netware.remote_printer_names)
+        writer.text(cat.ParameterLine.NETWARE_NDS_CONTEXT, netware.nds_context)
+    _slot_texts(writer, cat.SlotBlock.NETWARE_REMOTE_PRINTER_NAMES, netware.remote_printer_names)
 
 
 def _appletalk(writer: _Writer, appletalk: AppleTalk | None) -> None:
     if appletalk is None:
         return
-    writer.text(cat.APPLETALK_ZONE, appletalk.zone)
-    _slot_texts(writer, 3000, appletalk.printer_types)
-    _slot_flags(writer, 3100, appletalk.binary_protocol)
+    writer.text(cat.ParameterLine.APPLETALK_ZONE, appletalk.zone)
+    _slot_texts(writer, cat.SlotBlock.APPLETALK_PRINTER_TYPES, appletalk.printer_types)
+    _slot_flags(writer, cat.SlotBlock.APPLETALK_BINARY_PROTOCOL, appletalk.binary_protocol)
 
 
 def _tcp_ip(writer: _Writer, tcp_ip: TcpIp) -> None:
-    writer.address(cat.TCP_IP_ADDRESS, tcp_ip.ip_address)
-    writer.address(cat.TCP_GATEWAY, tcp_ip.gateway)
-    writer.address(cat.TCP_NETMASK, tcp_ip.netmask)
-    writer.integer(cat.TCP_RETRY_INTERVAL, tcp_ip.retry_interval)
-    writer.integer(cat.TCP_RETRY_COUNT, tcp_ip.retry_count)
+    writer.address(cat.ParameterLine.TCP_IP_ADDRESS, tcp_ip.ip_address)
+    writer.address(cat.ParameterLine.TCP_GATEWAY, tcp_ip.gateway)
+    writer.address(cat.ParameterLine.TCP_NETMASK, tcp_ip.netmask)
+    writer.integer(cat.ParameterLine.TCP_RETRY_INTERVAL, tcp_ip.retry_interval)
+    writer.integer(cat.ParameterLine.TCP_RETRY_COUNT, tcp_ip.retry_count)
     if tcp_ip.wins_server is not None:
-        writer.address(cat.TCP_WINS_SERVER, tcp_ip.wins_server)
+        writer.address(cat.ParameterLine.TCP_WINS_SERVER, tcp_ip.wins_server)
     if tcp_ip.dhcp is not None:
-        writer.switch(cat.TCP_DHCP, value=tcp_ip.dhcp)
+        writer.switch(cat.ParameterLine.TCP_DHCP, value=tcp_ip.dhcp)
 
 
 def _mail(writer: _Writer, mail: Mail | None) -> None:
@@ -180,18 +180,18 @@ def _mail(writer: _Writer, mail: Mail | None) -> None:
 def _smb(writer: _Writer, smb: Smb | None) -> None:
     if smb is None:
         return
-    writer.text(cat.SMB_WORKGROUP, smb.workgroup)
-    writer.yes_no(cat.SMB_DROP_JOB, value=smb.drop_job_on_error)
-    writer.integer(cat.SMB_DELAY, smb.delay)
+    writer.text(cat.ParameterLine.SMB_WORKGROUP, smb.workgroup)
+    writer.yes_no(cat.ParameterLine.SMB_DROP_JOB, value=smb.drop_job_on_error)
+    writer.integer(cat.ParameterLine.SMB_DELAY, smb.delay)
     if smb.description is not None:
-        writer.text(cat.SMB_DESCRIPTION, smb.description)
+        writer.text(cat.ParameterLine.SMB_DESCRIPTION, smb.description)
 
 
 def _snmp(writer: _Writer, snmp: Snmp | None) -> None:
     if snmp is None:
         return
-    writer.text(cat.SNMP_CONTACT, snmp.contact)
-    writer.text(cat.SNMP_LOCATION, snmp.location)
+    writer.text(cat.ParameterLine.SNMP_CONTACT, snmp.contact)
+    writer.text(cat.ParameterLine.SNMP_LOCATION, snmp.location)
     for manager in snmp.managers:
         writer.address(cat.manager_line(manager.slot, cat.ManagerField.ADDRESS), manager.address)
         writer.choice(cat.manager_line(manager.slot, cat.ManagerField.ACCESS), manager.access)

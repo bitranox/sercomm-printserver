@@ -65,7 +65,7 @@ class ExportReport(BaseModel, frozen=True):
     """Answer of ``device-config export``."""
 
     host: str
-    path: str
+    path: Path
     size: int
 
 
@@ -178,7 +178,7 @@ def cli_device_config_export(
     def work(server: PrintServer) -> ExportReport:
         data = server.read_config_text().encode("ascii")
         path.write_bytes(data)
-        return ExportReport(host=server.endpoint.host, path=str(path), size=len(data))
+        return ExportReport(host=server.endpoint.host, path=path, size=len(data))
 
     run_device_command(
         ctx,

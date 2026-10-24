@@ -147,7 +147,7 @@ def _build(reader: _Reader) -> DeviceConfig:
     # Keyword arguments are evaluated in order, so ``unmodeled`` collects what every group
     # before it left unread.
     return DeviceConfig(
-        box_name=reader.text(cat.BOX_NAME),
+        box_name=reader.text(cat.ParameterLine.BOX_NAME),
         protocols=_protocols(reader),
         tcp_ip=_tcp_ip(reader),
         logical_printers=_logical_printers(reader),
@@ -165,22 +165,22 @@ def _build(reader: _Reader) -> DeviceConfig:
 
 def _protocols(reader: _Reader) -> Protocols:
     return Protocols(
-        ipx_spx=reader.switch(cat.PROTOCOL_IPX_SPX),
-        tcp_ip=reader.switch(cat.PROTOCOL_TCP_IP),
-        appletalk=reader.switch(cat.PROTOCOL_APPLETALK),
-        netbeui=reader.switch(cat.PROTOCOL_NETBEUI),
+        ipx_spx=reader.switch(cat.ParameterLine.PROTOCOL_IPX_SPX),
+        tcp_ip=reader.switch(cat.ParameterLine.PROTOCOL_TCP_IP),
+        appletalk=reader.switch(cat.ParameterLine.PROTOCOL_APPLETALK),
+        netbeui=reader.switch(cat.ParameterLine.PROTOCOL_NETBEUI),
     )
 
 
 def _serial(reader: _Reader) -> SerialPort | None:
-    if not reader.has(cat.SERIAL_BAUD_RATE):
+    if not reader.has(cat.ParameterLine.SERIAL_BAUD_RATE):
         return None
     return SerialPort(
-        baud_rate=reader.int_choice(cat.SERIAL_BAUD_RATE, BaudRate),
-        stop_bits=reader.int_choice(cat.SERIAL_STOP_BITS, StopBits),
-        parity=reader.choice(cat.SERIAL_PARITY, Parity),
-        data_bits=reader.int_choice(cat.SERIAL_DATA_BITS, DataBits),
-        handshake=reader.choice(cat.SERIAL_HANDSHAKE, Handshake),
+        baud_rate=reader.int_choice(cat.ParameterLine.SERIAL_BAUD_RATE, BaudRate),
+        stop_bits=reader.int_choice(cat.ParameterLine.SERIAL_STOP_BITS, StopBits),
+        parity=reader.choice(cat.ParameterLine.SERIAL_PARITY, Parity),
+        data_bits=reader.int_choice(cat.ParameterLine.SERIAL_DATA_BITS, DataBits),
+        handshake=reader.choice(cat.ParameterLine.SERIAL_HANDSHAKE, Handshake),
     )
 
 
@@ -216,47 +216,55 @@ def _parallel_modes(reader: _Reader) -> tuple[ParallelMode, ...]:
 
 
 def _netware(reader: _Reader) -> NetWare | None:
-    if not reader.has(cat.NETWARE_MODE):
+    if not reader.has(cat.ParameterLine.NETWARE_MODE):
         return None
     return NetWare(
-        mode=reader.choice(cat.NETWARE_MODE, NetWareMode),
-        frame_ethernet_ii=reader.switch(cat.NETWARE_FRAME_ETHERNET_II),
-        frame_802_2=reader.switch(cat.NETWARE_FRAME_802_2),
-        frame_802_3=reader.switch(cat.NETWARE_FRAME_802_3),
-        frame_snap=reader.switch(cat.NETWARE_FRAME_SNAP),
-        file_server=reader.text(cat.NETWARE_FILE_SERVER),
-        notify=reader.yes_no(cat.NETWARE_NOTIFY),
-        poll_interval=reader.integer(cat.NETWARE_POLL_INTERVAL),
-        nds_tree=reader.optional_text(cat.NETWARE_NDS_TREE),
-        nds_context=reader.optional_text(cat.NETWARE_NDS_CONTEXT),
-        remote_printer_names=_slot_texts(reader, [(slot, cat.slot_line(2500, slot)) for slot in cat.SLOTS]),
+        mode=reader.choice(cat.ParameterLine.NETWARE_MODE, NetWareMode),
+        frame_ethernet_ii=reader.switch(cat.ParameterLine.NETWARE_FRAME_ETHERNET_II),
+        frame_802_2=reader.switch(cat.ParameterLine.NETWARE_FRAME_802_2),
+        frame_802_3=reader.switch(cat.ParameterLine.NETWARE_FRAME_802_3),
+        frame_snap=reader.switch(cat.ParameterLine.NETWARE_FRAME_SNAP),
+        file_server=reader.text(cat.ParameterLine.NETWARE_FILE_SERVER),
+        notify=reader.yes_no(cat.ParameterLine.NETWARE_NOTIFY),
+        poll_interval=reader.integer(cat.ParameterLine.NETWARE_POLL_INTERVAL),
+        nds_tree=reader.optional_text(cat.ParameterLine.NETWARE_NDS_TREE),
+        nds_context=reader.optional_text(cat.ParameterLine.NETWARE_NDS_CONTEXT),
+        remote_printer_names=_slot_texts(
+            reader, [(slot, cat.slot_line(cat.SlotBlock.NETWARE_REMOTE_PRINTER_NAMES, slot)) for slot in cat.SLOTS]
+        ),
     )
 
 
 def _appletalk(reader: _Reader) -> AppleTalk | None:
-    if not reader.has(cat.APPLETALK_ZONE):
+    if not reader.has(cat.ParameterLine.APPLETALK_ZONE):
         return None
     return AppleTalk(
-        zone=reader.text(cat.APPLETALK_ZONE),
-        printer_types=_slot_texts(reader, [(slot, cat.slot_line(3000, slot)) for slot in cat.SLOTS]),
-        binary_protocol=_slot_flags(reader, [(slot, cat.slot_line(3100, slot)) for slot in cat.SLOTS]),
+        zone=reader.text(cat.ParameterLine.APPLETALK_ZONE),
+        printer_types=_slot_texts(
+            reader, [(slot, cat.slot_line(cat.SlotBlock.APPLETALK_PRINTER_TYPES, slot)) for slot in cat.SLOTS]
+        ),
+        binary_protocol=_slot_flags(
+            reader, [(slot, cat.slot_line(cat.SlotBlock.APPLETALK_BINARY_PROTOCOL, slot)) for slot in cat.SLOTS]
+        ),
     )
 
 
 def _tcp_ip(reader: _Reader) -> TcpIp:
     return TcpIp(
-        ip_address=reader.address(cat.TCP_IP_ADDRESS),
-        gateway=reader.address(cat.TCP_GATEWAY),
-        netmask=reader.address(cat.TCP_NETMASK),
-        retry_interval=reader.integer(cat.TCP_RETRY_INTERVAL),
-        retry_count=reader.integer(cat.TCP_RETRY_COUNT),
-        wins_server=reader.address(cat.TCP_WINS_SERVER) if reader.has(cat.TCP_WINS_SERVER) else None,
-        dhcp=reader.switch(cat.TCP_DHCP) if reader.has(cat.TCP_DHCP) else None,
+        ip_address=reader.address(cat.ParameterLine.TCP_IP_ADDRESS),
+        gateway=reader.address(cat.ParameterLine.TCP_GATEWAY),
+        netmask=reader.address(cat.ParameterLine.TCP_NETMASK),
+        retry_interval=reader.integer(cat.ParameterLine.TCP_RETRY_INTERVAL),
+        retry_count=reader.integer(cat.ParameterLine.TCP_RETRY_COUNT),
+        wins_server=reader.address(cat.ParameterLine.TCP_WINS_SERVER)
+        if reader.has(cat.ParameterLine.TCP_WINS_SERVER)
+        else None,
+        dhcp=reader.switch(cat.ParameterLine.TCP_DHCP) if reader.has(cat.ParameterLine.TCP_DHCP) else None,
     )
 
 
 def _mail(reader: _Reader) -> Mail | None:
-    if not reader.has(cat.MAIL_SERVER):
+    if not reader.has(cat.ParameterLine.MAIL_SERVER):
         return None
     return Mail(
         server=reader.address(cat.mail_line(cat.MailField.SERVER)),
@@ -273,24 +281,24 @@ def _mail(reader: _Reader) -> Mail | None:
 
 
 def _smb(reader: _Reader) -> Smb | None:
-    if not reader.has(cat.SMB_WORKGROUP):
+    if not reader.has(cat.ParameterLine.SMB_WORKGROUP):
         return None
     return Smb(
-        workgroup=reader.text(cat.SMB_WORKGROUP),
-        drop_job_on_error=reader.yes_no(cat.SMB_DROP_JOB),
-        delay=reader.integer(cat.SMB_DELAY),
-        description=reader.optional_text(cat.SMB_DESCRIPTION),
+        workgroup=reader.text(cat.ParameterLine.SMB_WORKGROUP),
+        drop_job_on_error=reader.yes_no(cat.ParameterLine.SMB_DROP_JOB),
+        delay=reader.integer(cat.ParameterLine.SMB_DELAY),
+        description=reader.optional_text(cat.ParameterLine.SMB_DESCRIPTION),
     )
 
 
 def _snmp(reader: _Reader) -> Snmp | None:
-    if not reader.has(cat.SNMP_CONTACT):
+    if not reader.has(cat.ParameterLine.SNMP_CONTACT):
         return None
     managers = reader.present_slots((slot, cat.manager_line(slot, cat.ManagerField.ADDRESS)) for slot in cat.SLOTS)
     traps = reader.present_slots((slot, cat.trap_line(slot, cat.TrapField.ADDRESS)) for slot in cat.SLOTS)
     return Snmp(
-        contact=reader.text(cat.SNMP_CONTACT),
-        location=reader.text(cat.SNMP_LOCATION),
+        contact=reader.text(cat.ParameterLine.SNMP_CONTACT),
+        location=reader.text(cat.ParameterLine.SNMP_LOCATION),
         managers=tuple(_manager(reader, slot) for slot in managers),
         traps=tuple(_trap(reader, slot) for slot in traps),
     )

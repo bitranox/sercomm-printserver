@@ -102,8 +102,12 @@ def find_line(config: DeviceConfig, key: str) -> ConfigLine:
         >>> find_line(parse_config(SAMPLE), "4020").token
         'DHCP_MODE'
     """
+    return _match_line(write_config(config), key)
+
+
+def _match_line(lines: tuple[ConfigLine, ...], key: str) -> ConfigLine:
     wanted = key.strip()
-    for line in write_config(config):
+    for line in lines:
         if wanted.upper() == line.token.strip().upper() or (wanted.isdigit() and int(wanted) == line.number):
             return line
     raise ConfigFormatError(f"no parameter {key!r} in this configuration")
@@ -123,10 +127,10 @@ def with_value(config: DeviceConfig, key: str, value: str) -> DeviceConfig:
     Raises:
         ConfigFormatError: ``key`` does not name a parameter, or ``value`` is invalid for it.
     """
-    target = find_line(config, key)
+    current = write_config(config)
+    target = _match_line(current, key)
     lines = tuple(
-        line.model_copy(update={"value": value.strip()}) if line.number == target.number else line
-        for line in write_config(config)
+        line.model_copy(update={"value": value.strip()}) if line.number == target.number else line for line in current
     )
     return read_config(lines)
 

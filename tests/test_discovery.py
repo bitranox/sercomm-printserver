@@ -57,7 +57,7 @@ def test_without_networks_the_local_ones_are_searched_and_oversized_ones_skipped
     report = discover(scanner, networks=None, timeout=1.0)
 
     assert report.networks == (_NET,)
-    assert report.skipped == ("172.17.0.0/16: more than 4096 addresses, name it with --network",)
+    assert report.skipped == (IPv4Network("172.17.0.0/16"),)
 
 
 def test_a_named_network_that_is_too_large_is_refused_before_any_probe() -> None:
@@ -143,6 +143,30 @@ def test_discover_answers_as_an_envelope(cli_runner: CliRunner) -> None:
     document = json.loads(result.output)
     assert result.exit_code == 0
     assert document["data"]["devices"] == [{"host": "192.0.2.3", "mac_address": "00:c0:02:12:34:56"}]
+
+
+_OVERSIZED_NOTE = "172.17.0.0/16: more than 4096 addresses, name it with --network"
+
+
+def test_discover_names_a_skipped_network_in_the_envelope(cli_runner: CliRunner) -> None:
+    scanner = FakeScanner(hits=(), networks=(_NET, IPv4Network("172.17.0.0/16")))
+
+    result = cli_runner.invoke(cli_root.cli, ["discover", "--json-bare"], obj=lambda: build_testing(scanner=scanner))
+
+    document = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert document["skipped"] == [_OVERSIZED_NOTE]
+    assert document["data"]["skipped"] == ["172.17.0.0/16"]
+
+
+def test_discover_names_a_skipped_network_on_stderr_for_a_person(cli_runner: CliRunner) -> None:
+    scanner = FakeScanner(hits=(), networks=(_NET, IPv4Network("172.17.0.0/16")))
+
+    result = cli_runner.invoke(cli_root.cli, ["discover"], obj=lambda: build_testing(scanner=scanner))
+
+    assert result.exit_code == 0
+    assert result.stdout == "Searched 192.0.2.0/29 (6 addresses): 0 print server(s)\n"
+    assert result.stderr == f"skipped {_OVERSIZED_NOTE}\n"
 
 
 def test_discover_with_a_malformed_network_exits_22(cli_runner: CliRunner) -> None:

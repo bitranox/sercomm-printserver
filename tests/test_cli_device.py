@@ -123,6 +123,20 @@ def test_device_config_export_writes_the_exact_device_file(
     assert target.read_bytes() == device.config.encode("ascii")
 
 
+def test_device_config_export_reports_the_path_as_given(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice, tmp_path: Path
+) -> None:
+    target = tmp_path / "CONFIG.txt"
+    size = len(device.config.encode("ascii"))
+    command = ["device-config", "export", str(target), *_HOST]
+
+    human = cli_runner.invoke(cli_root.cli, command, obj=services)
+    machine = cli_runner.invoke(cli_root.cli, [*command, "--json-bare"], obj=services)
+
+    assert human.output == f"192.0.2.52: wrote {size} bytes to {target}\n"
+    assert _json(machine.output)["data"] == {"host": "192.0.2.52", "path": str(target), "size": size}
+
+
 # ---------------------------------------------------------------- refusals and their exit codes
 
 

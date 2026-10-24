@@ -154,44 +154,59 @@ TOKENS: Final = MappingProxyType(
     }
 )
 
-BOX_NAME: Final = 1
-PROTOCOL_IPX_SPX: Final = 11
-PROTOCOL_TCP_IP: Final = 12
-PROTOCOL_APPLETALK: Final = 13
-PROTOCOL_NETBEUI: Final = 14
-SERIAL_BAUD_RATE: Final = 30
-SERIAL_STOP_BITS: Final = 31
-SERIAL_PARITY: Final = 32
-SERIAL_DATA_BITS: Final = 33
-SERIAL_HANDSHAKE: Final = 34
-NETWARE_MODE: Final = 2000
-NETWARE_FRAME_ETHERNET_II: Final = 2001
-NETWARE_FRAME_802_2: Final = 2002
-NETWARE_FRAME_802_3: Final = 2003
-NETWARE_FRAME_SNAP: Final = 2004
-NETWARE_FILE_SERVER: Final = 2101
-NETWARE_NOTIFY: Final = 2102
-NETWARE_POLL_INTERVAL: Final = 2103
-NETWARE_NDS_TREE: Final = 2110
-NETWARE_NDS_CONTEXT: Final = 2111
-APPLETALK_ZONE: Final = 3000
-TCP_IP_ADDRESS: Final = 4000
-TCP_GATEWAY: Final = 4001
-TCP_NETMASK: Final = 4002
-TCP_RETRY_INTERVAL: Final = 4010
-TCP_RETRY_COUNT: Final = 4011
-TCP_WINS_SERVER: Final = 4012
-TCP_DHCP: Final = 4020
-MAIL_SERVER: Final = 4100
-SMB_WORKGROUP: Final = 5000
-SMB_DROP_JOB: Final = 5001
-SMB_DELAY: Final = 5002
-SMB_DESCRIPTION: Final = 5003
-SNMP_CONTACT: Final = 6000
-SNMP_LOCATION: Final = 6001
-
 #: Slots a per-port or per-station parameter can have. The table decides which exist.
 SLOTS: Final = range(1, 10)
+
+
+class ParameterLine(IntEnum):
+    """Line number of a parameter that occurs once, not once per slot or per printer.
+
+    The value is the line number itself, so a member indexes :data:`TOKENS` directly.
+    """
+
+    BOX_NAME = 1
+    PROTOCOL_IPX_SPX = 11
+    PROTOCOL_TCP_IP = 12
+    PROTOCOL_APPLETALK = 13
+    PROTOCOL_NETBEUI = 14
+    SERIAL_BAUD_RATE = 30
+    SERIAL_STOP_BITS = 31
+    SERIAL_PARITY = 32
+    SERIAL_DATA_BITS = 33
+    SERIAL_HANDSHAKE = 34
+    NETWARE_MODE = 2000
+    NETWARE_FRAME_ETHERNET_II = 2001
+    NETWARE_FRAME_802_2 = 2002
+    NETWARE_FRAME_802_3 = 2003
+    NETWARE_FRAME_SNAP = 2004
+    NETWARE_FILE_SERVER = 2101
+    NETWARE_NOTIFY = 2102
+    NETWARE_POLL_INTERVAL = 2103
+    NETWARE_NDS_TREE = 2110
+    NETWARE_NDS_CONTEXT = 2111
+    APPLETALK_ZONE = 3000
+    TCP_IP_ADDRESS = 4000
+    TCP_GATEWAY = 4001
+    TCP_NETMASK = 4002
+    TCP_RETRY_INTERVAL = 4010
+    TCP_RETRY_COUNT = 4011
+    TCP_WINS_SERVER = 4012
+    TCP_DHCP = 4020
+    MAIL_SERVER = 4100
+    SMB_WORKGROUP = 5000
+    SMB_DROP_JOB = 5001
+    SMB_DELAY = 5002
+    SMB_DESCRIPTION = 5003
+    SNMP_CONTACT = 6000
+    SNMP_LOCATION = 6001
+
+
+class SlotBlock(IntEnum):
+    """Block of per-slot lines; the value is the line before slot 1, see :func:`slot_line`."""
+
+    NETWARE_REMOTE_PRINTER_NAMES = 2500
+    APPLETALK_PRINTER_TYPES = 3000
+    APPLETALK_BINARY_PROTOCOL = 3100
 
 
 class PrinterField(IntEnum):
@@ -205,7 +220,7 @@ class PrinterField(IntEnum):
 
 
 class MailField(IntEnum):
-    """Mail parameter; the value is its offset from :data:`MAIL_SERVER`."""
+    """Mail parameter; the value is its offset from :attr:`ParameterLine.MAIL_SERVER`."""
 
     SERVER = 0
     ACCOUNT = 1
@@ -266,14 +281,14 @@ def parallel_mode_line(slot: int) -> int:
     return 500 + slot
 
 
-def slot_line(base: int, slot: int) -> int:
-    """Line of a per-slot parameter whose slot 1 sits at ``base + 1`` (NetWare, AppleTalk).
+def slot_line(block: SlotBlock, slot: int) -> int:
+    """Line of ``slot`` in a per-slot block, whose slot 1 sits at ``block + 1``.
 
     Example:
-        >>> slot_line(2500, 3)
+        >>> slot_line(SlotBlock.NETWARE_REMOTE_PRINTER_NAMES, 3)
         2503
     """
-    return base + slot
+    return block + slot
 
 
 def mail_line(field: MailField) -> int:
@@ -283,7 +298,7 @@ def mail_line(field: MailField) -> int:
         >>> mail_line(MailField.PASSWORD)
         4102
     """
-    return MAIL_SERVER + field
+    return ParameterLine.MAIL_SERVER + field
 
 
 def manager_line(slot: int, field: ManagerField) -> int:
@@ -317,46 +332,13 @@ def known(line: int) -> bool:
 
 
 __all__ = [
-    "APPLETALK_ZONE",
-    "BOX_NAME",
-    "MAIL_SERVER",
-    "NETWARE_FILE_SERVER",
-    "NETWARE_FRAME_802_2",
-    "NETWARE_FRAME_802_3",
-    "NETWARE_FRAME_ETHERNET_II",
-    "NETWARE_FRAME_SNAP",
-    "NETWARE_MODE",
-    "NETWARE_NDS_CONTEXT",
-    "NETWARE_NDS_TREE",
-    "NETWARE_NOTIFY",
-    "NETWARE_POLL_INTERVAL",
-    "PROTOCOL_APPLETALK",
-    "PROTOCOL_IPX_SPX",
-    "PROTOCOL_NETBEUI",
-    "PROTOCOL_TCP_IP",
-    "SERIAL_BAUD_RATE",
-    "SERIAL_DATA_BITS",
-    "SERIAL_HANDSHAKE",
-    "SERIAL_PARITY",
-    "SERIAL_STOP_BITS",
     "SLOTS",
-    "SMB_DELAY",
-    "SMB_DESCRIPTION",
-    "SMB_DROP_JOB",
-    "SMB_WORKGROUP",
-    "SNMP_CONTACT",
-    "SNMP_LOCATION",
-    "TCP_DHCP",
-    "TCP_GATEWAY",
-    "TCP_IP_ADDRESS",
-    "TCP_NETMASK",
-    "TCP_RETRY_COUNT",
-    "TCP_RETRY_INTERVAL",
-    "TCP_WINS_SERVER",
     "TOKENS",
     "MailField",
     "ManagerField",
+    "ParameterLine",
     "PrinterField",
+    "SlotBlock",
     "TrapField",
     "known",
     "mail_line",

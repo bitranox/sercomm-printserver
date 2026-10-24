@@ -22,7 +22,7 @@ from __future__ import annotations
 import contextlib
 import socket
 import struct
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from ...domain.errors import DeviceResponseError, DeviceUnavailableError
@@ -31,12 +31,6 @@ if TYPE_CHECKING:
     from ...domain.device_files import DeviceAction, ReadableFile
     from ...domain.endpoint import DeviceEndpoint
 
-_OP_RRQ: Final = 1
-_OP_DATA: Final = 3
-_OP_ACK: Final = 4
-_OP_ERROR: Final = 5
-_ERR_DISK_FULL: Final = 3
-_ERR_UNKNOWN_TID: Final = 5
 #: Opcode plus block number or error code: the fixed head of every packet but RRQ.
 _HEAD: Final = 4
 _BLOCK: Final = 512
@@ -56,6 +50,22 @@ class _Received(NamedTuple):
     complete: bool
 
 
+class _Opcode(IntEnum):
+    """The RFC 1350 packet opcodes this client sends or expects; WRQ is never used."""
+
+    RRQ = 1
+    DATA = 3
+    ACK = 4
+    ERROR = 5
+
+
+class _ErrorCode(IntEnum):
+    """The RFC 1350 error codes this client sends."""
+
+    DISK_FULL = 3
+    UNKNOWN_TID = 5
+
+
 class _Step(Enum):
     """How one received DATA packet moved the transfer."""
 
@@ -64,16 +74,16 @@ class _Step(Enum):
     LAST_BLOCK = "last block"
 
 
-def _packet(opcode: int, number: int, payload: bytes = b"") -> bytes:
+def _packet(opcode: _Opcode, number: int, payload: bytes = b"") -> bytes:
     return struct.pack("!HH", opcode, number) + payload
 
 
 def _read_request(filename: str) -> bytes:
-    return struct.pack("!H", _OP_RRQ) + filename.encode("ascii") + b"\x00octet\x00"
+    return struct.pack("!H", _Opcode.RRQ) + filename.encode("ascii") + b"\x00octet\x00"
 
 
-def _error_packet(code: int, message: str) -> bytes:
-    return _packet(_OP_ERROR, code, message.encode("ascii") + b"\x00")
+def _error_packet(code: _ErrorCode, message: str) -> bytes:
+    return _packet(_Opcode.ERROR, code, message.encode("ascii") + b"\x00")
 
 
 def _quote(raw: bytes) -> str:
@@ -141,15 +151,16 @@ class _Transfer:
                 return packet
             # Another address joined the exchange; RFC 1350 says tell it, then carry on.
             with contextlib.suppress(OSError):
-                self._sock.sendto(_error_packet(_ERR_UNKNOWN_TID, "Unknown transfer ID"), sender)
+                self._sock.sendto(_error_packet(_ErrorCode.UNKNOWN_TID, "Unknown transfer ID"), sender)
 
     def _handle(self, packet: bytes) -> _Step:
         if len(packet) < _HEAD:
             raise DeviceResponseError(f"{self._label} sent a malformed TFTP packet {packet[:20]!r}")
+        # The opcode stays the wire int: an unknown value must still be reported as its number.
         opcode, number = struct.unpack("!HH", packet[:_HEAD])
-        if opcode == _OP_ERROR:
+        if opcode == _Opcode.ERROR:
             raise DeviceResponseError(f"{self._label} answered TFTP error {number}: {_quote(packet[_HEAD:])}")
-        if opcode != _OP_DATA:
+        if opcode != _Opcode.DATA:
             raise DeviceResponseError(f"{self._label} sent TFTP opcode {opcode} where DATA was expected")
         return self._accept(number, packet[_HEAD:])
 
@@ -164,9 +175,9 @@ class _Transfer:
         self._data += payload
         if len(self._data) > _SIZE_CAP:
             with contextlib.suppress(OSError):
-                self._sock.sendto(_error_packet(_ERR_DISK_FULL, "File too large"), self._dest)
+                self._sock.sendto(_error_packet(_ErrorCode.DISK_FULL, "File too large"), self._dest)
             raise DeviceResponseError(f"{self._label} sent more than {_SIZE_CAP} bytes over TFTP")
-        self._send(_packet(_OP_ACK, number))
+        self._send(_packet(_Opcode.ACK, number))
         self._expected = number + 1
         return _Step.LAST_BLOCK if len(payload) < _BLOCK else _Step.NEW_BLOCK
 

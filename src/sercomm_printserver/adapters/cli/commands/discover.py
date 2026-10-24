@@ -7,7 +7,7 @@ from ipaddress import IPv4Network
 import lib_log_rich.runtime
 import rich_click as click
 
-from sercomm_printserver.application.discovery import DiscoveryReport, discover
+from sercomm_printserver.application.discovery import MAX_HOSTS, DiscoveryReport, discover
 
 from .. import safe_console
 from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
@@ -54,14 +54,21 @@ def cli_discover(
         except ValueError as error:
             report_failure(error, command=CommandName.DISCOVER, mode=mode)
             ctx.exit(exit_code_for(error))
+    notes = _skipped_notes(report)
     if mode.machine:
-        write_envelope(
-            Envelope.of(command=CommandName.DISCOVER, payload=report, skipped=list(report.skipped)), mode=mode
-        )
+        write_envelope(Envelope.of(command=CommandName.DISCOVER, payload=report, skipped=notes), mode=mode)
         return
     safe_console.echo(_render(report))
-    for note in report.skipped:
+    for note in notes:
         safe_console.echo(f"skipped {note}", err=True)
+
+
+def _skipped_notes(report: DiscoveryReport) -> list[str]:
+    """Say why each left-out network was skipped and how to search it anyway.
+
+    The flag is named here rather than in the use case, which knows nothing of the CLI.
+    """
+    return [f"{network}: more than {MAX_HOSTS} addresses, name it with --network" for network in report.skipped]
 
 
 def _render(report: DiscoveryReport) -> str:
