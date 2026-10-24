@@ -13,7 +13,6 @@ exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
 certifi = "2026-10-20T02:24:17Z"
-filelock = "2026-10-17T16:48:15Z"
 ipscout = false
 lib-cli-exit-tools = false
 lib-layered-config = false
@@ -1112,7 +1111,7 @@ wheels = [
 
 [[package]]
 name = "ipscout"
-version = "2.0.0"
+version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1120,9 +1119,9 @@ dependencies = [
     { name = "rich-click" },
     { name = "rtoml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c7/4c/9b5ebc051a8fe5a4c143be554cb12cae20b46db39b4f1d4578b7767ed8da/ipscout-2.0.0.tar.gz", hash = "sha256:e93183b132d566dab4d25380ae5f0af2bff008992e78a6c63c6f420596d9966f", size = 279584, upload-time = "2026-10-24T11:34:37.519Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/e0/2434f0d0d6a913e1834d4c183ff8ae5c7c1880d3bd07fb56d6021b25dc54/ipscout-2.1.0.tar.gz", hash = "sha256:a0b670ff51b68c8217df0f6838f6f23d0a9a73135d3036dca43d5d166564a769", size = 292726, upload-time = "2026-10-24T17:18:51.933Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/dd/e9de032698c51280d90283bd8208ee77249845b66eda4058da5fbb8bc895/ipscout-2.0.0-py3-none-any.whl", hash = "sha256:d7824820d095499ddefdc7269c210896ef72737ea51ddf310b98a99440b4cad8", size = 194548, upload-time = "2026-10-24T11:34:35.893Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/90/2d01e597c6fd52473b306ce007dfb3ec9b6bc07d2ff7327a9b8ac408e132/ipscout-2.1.0-py3-none-any.whl", hash = "sha256:aef9594457cbaa985c27fe830ece439945ed0d0c35516b0945857b19dd9044a8", size = 201638, upload-time = "2026-10-24T17:18:50.301Z" },
 ]
 
 [[package]]
@@ -2314,7 +2313,7 @@ requires-dist = [
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.13.1" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.5" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
-    { name = "ipscout", specifier = ">=2.0.0" },
+    { name = "ipscout", specifier = ">=2.1.0" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
     { name = "lib-layered-config", specifier = ">=7.3.0" },

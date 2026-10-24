@@ -120,6 +120,15 @@ def test_the_scanner_reads_the_greeting_and_sends_nothing_but_quit(greeting: byt
     assert server.received == b"QUIT\r\n"
 
 
+def test_a_server_that_does_not_greet_with_220_is_left_out_and_still_told_quit() -> None:
+    with _GreetingServer(b"421 Service not available.\r\n") as server:
+        hits = FtpBannerScanner(ftp_port=server.port).probe_ftp(["127.0.0.1"], timeout=5.0)
+        server.done.wait()
+
+    assert hits == ()
+    assert server.received == b"QUIT\r\n"
+
+
 def test_a_host_with_nothing_listening_is_left_out(closed_port: int) -> None:
     assert FtpBannerScanner(ftp_port=closed_port).probe_ftp(["127.0.0.1"], timeout=1.0) == ()
 

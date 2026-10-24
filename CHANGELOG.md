@@ -6,6 +6,12 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Changed
+
+- `discover` probes port 21 through ipscout's `grab_banners` (requires `ipscout>=2.1.0`), still
+  one connection per host. A server whose first line is not a `220` greeting is now also sent
+  `QUIT` before the connection closes; it was closed without a word.
+
 ## [0.1.0] 2026-10-24
 
 ### Added

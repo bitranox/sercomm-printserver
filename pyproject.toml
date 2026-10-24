@@ -15,7 +15,7 @@ dependencies = [
     "lib_layered_config>=7.3.0",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
-    "ipscout>=2.0.0",
+    "ipscout>=2.1.0",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
@@ -302,4 +302,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-22T20:10:18Z", certifi = "2026-10-20T02:24:17Z", ipscout = false, filelock = "2026-10-17T16:48:15Z"}
+exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-22T20:10:18Z", certifi = "2026-10-20T02:24:17Z", ipscout = false}

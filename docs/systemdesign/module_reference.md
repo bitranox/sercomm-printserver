@@ -98,8 +98,8 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 
 * `ftp/`, `telnet/` (`client.py`, `iac.py`), `tftp/`, `lpd/`, `raw/`, `snmp/` - one protocol
   client each; `snmp` reads only `sysUpTime` with one SNMPv1 GET.
-* `discovery/scanner.py` - `FtpBannerScanner`: concurrent FTP-port probes; MACs and local
-  networks through ipscout.
+* `discovery/scanner.py` - `FtpBannerScanner`: FTP-port probes (ipscout's `grab_banners`, one
+  connection per host), MACs and local networks, all through ipscout.
 * `neighbors/table.py` - `IpscoutNeighborTable`: static ARP entries; maps ipscout's refusal to
   `HostPrivilegeError`.
 * `config/` - layered configuration (`loader.py`, `deploy.py`, `display.py`, `overrides.py`) and
