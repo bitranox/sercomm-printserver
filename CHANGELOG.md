@@ -6,6 +6,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.1.0] 2026-10-24
+
 ### Added
 
 - Project created from `bitranox_template_py_cli` and renamed to `sercomm-printserver`.
