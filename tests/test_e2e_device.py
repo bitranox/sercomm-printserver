@@ -48,6 +48,9 @@ _ROOT = Path(__file__).resolve().parents[1]
 _SNAPSHOTS = _ROOT / ".e2e"
 #: How long the monitor may take to show a RAW job's port as busy (measured: under 2 s).
 _RAW_SETTLE_SECONDS = 10.0
+#: The device refuses port 21 for about 0.1 s after each FTP session (docs/Manual-PS301.md);
+#: 0.5 s after one, a probe was greeted every time (measured 3 of 3).
+_FTP_SETTLE_SECONDS = 0.5
 
 
 class _E2eSettings(BaseModel):
@@ -216,6 +219,10 @@ def test_the_lpd_queue_state_reports_the_port(server: PrintServer) -> None:
 
 def test_discovery_finds_the_device_with_its_mac(device: _TestDevice) -> None:
     scanner = FtpBannerScanner()
+    # The scanner connects once per host, as a sweep must. An FTP session can end just before
+    # this test (the module's CONFIG snapshot, when this test runs first), so wait out the
+    # device's refusal window rather than read a refused connect as "no print server".
+    time.sleep(_FTP_SETTLE_SECONDS)
 
     hits = scanner.probe_ftp([str(device.host)], timeout=3.0)
 
