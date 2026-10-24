@@ -11,6 +11,13 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 - `discover` probes port 21 through ipscout's `grab_banners` (requires `ipscout>=2.1.0`), still
   one connection per host. A server whose first line is not a `220` greeting is now also sent
   `QUIT` before the connection closes; it was closed without a word.
+- `discover` without `--network` spends its 4096-address budget on the local networks with
+  ipscout's `sweep_scope`, in the order the host reports them, and lists the rest as skipped.
+  A host with several mid-size networks (three /21, 6138 addresses) was refused outright
+  ("more than 4096; name a smaller network") and probed nothing. The skip note now reads
+  `<network>: beyond the 4096-address budget, name it with --network`. Named `--network`
+  values are still refused over 4096 addresses (exit 22). The `HostScanner` port answers
+  `local_scope(limit=)` with a `LocalScope` instead of `local_networks()`.
 
 ## [0.1.0] 2026-10-24
 

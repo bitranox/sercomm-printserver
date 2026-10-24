@@ -8,6 +8,7 @@ import threading
 from ipaddress import IPv4Address, IPv4Network
 from typing import TYPE_CHECKING
 
+import ipscout
 import pytest
 
 from sercomm_printserver.adapters.cli import root as cli_root
@@ -28,7 +29,7 @@ _NET = IPv4Network("192.0.2.0/29")
 
 def test_the_fake_scanner_satisfies_the_port() -> None:
     scanner: HostScanner = FakeScanner(hits=())
-    assert scanner.local_networks()
+    assert scanner.local_scope(limit=4096).networks
 
 
 # ---------------------------------------------------------------- use case
@@ -58,6 +59,17 @@ def test_without_networks_the_local_ones_are_searched_and_oversized_ones_skipped
 
     assert report.networks == (_NET,)
     assert report.skipped == (IPv4Network("172.17.0.0/16"),)
+
+
+def test_without_networks_the_budget_covers_what_fits_and_skips_the_rest() -> None:
+    # Each /21 fits on its own; together they exceed the budget, which must not end the search.
+    networks = tuple(IPv4Network(n) for n in ("10.0.0.0/21", "10.0.8.0/21", "10.0.16.0/21"))
+    scanner = FakeScanner(hits=(), networks=networks)
+
+    report = discover(scanner, networks=None, timeout=1.0)
+
+    assert (report.networks, report.skipped) == (networks[:2], networks[2:])
+    assert report.probed == 2 * 2046
 
 
 def test_a_named_network_that_is_too_large_is_refused_before_any_probe() -> None:
@@ -133,6 +145,15 @@ def test_a_host_with_nothing_listening_is_left_out(closed_port: int) -> None:
     assert FtpBannerScanner(ftp_port=closed_port).probe_ftp(["127.0.0.1"], timeout=1.0) == ()
 
 
+def test_the_real_scope_splits_exactly_the_networks_this_host_has() -> None:
+    scope = FtpBannerScanner().local_scope(limit=4096)
+
+    assert set(scope.networks) | set(scope.skipped) == {
+        network for network in ipscout.local_networks() if isinstance(network, IPv4Network)
+    }
+    assert not set(scope.networks) & set(scope.skipped)
+
+
 def test_no_hosts_means_no_probe() -> None:
     assert FtpBannerScanner().probe_ftp([], timeout=1.0) == ()
 
@@ -154,7 +175,7 @@ def test_discover_answers_as_an_envelope(cli_runner: CliRunner) -> None:
     assert document["data"]["devices"] == [{"host": "192.0.2.3", "mac_address": "00:c0:02:12:34:56"}]
 
 
-_OVERSIZED_NOTE = "172.17.0.0/16: more than 4096 addresses, name it with --network"
+_OVERSIZED_NOTE = "172.17.0.0/16: beyond the 4096-address budget, name it with --network"
 
 
 def test_discover_names_a_skipped_network_in_the_envelope(cli_runner: CliRunner) -> None:

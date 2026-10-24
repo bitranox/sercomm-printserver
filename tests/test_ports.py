@@ -130,7 +130,7 @@ def test_build_testing_services_are_callable() -> None:
 
 
 #: Ports that are objects with several methods rather than one callable, and those methods.
-_OBJECT_PORTS = {"host_scanner": ("local_networks", "probe_ftp", "mac_address")}
+_OBJECT_PORTS = {"host_scanner": ("local_scope", "probe_ftp", "mac_address")}
 
 
 def _assert_every_port_is_usable(services: AppServices) -> None:

@@ -76,7 +76,8 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
   plan_config, write_config, reset, set_password, clear_password, store_ip, factory_default,
   print_lpd, print_raw), `DevicePorts`, `ConfigWriteResult`.
 * `discovery.py` - `discover(scanner, networks=, timeout=)` returning `DiscoveryReport` of
-  `DiscoveredDevice`; `MAX_HOSTS`, `PRINT_SERVER_GREETING`.
+  `DiscoveredDevice`; `LocalScope` (the default sweep plan the scanner port returns),
+  `MAX_HOSTS`, `PRINT_SERVER_GREETING`.
 * `arp_trick.py` - `borrowed_address`, `reach`, `assign_ip`, `factory_reset`, `ArpResult`.
 * `ports.py` - the Protocols below.
 

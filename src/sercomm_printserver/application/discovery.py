@@ -35,6 +35,13 @@ class ProbeHit(BaseModel, frozen=True, extra="forbid"):
     greeting: str
 
 
+class LocalScope(BaseModel, frozen=True, extra="forbid"):
+    """The local networks a default discovery covers, and those its address budget left out."""
+
+    networks: tuple[IPv4Network, ...]
+    skipped: tuple[IPv4Network, ...] = ()
+
+
 class DiscoveredDevice(BaseModel, frozen=True, extra="forbid"):
     """A print server of the family found on the network."""
 
@@ -49,8 +56,8 @@ class DiscoveryReport(BaseModel, frozen=True, extra="forbid"):
         networks: The networks whose host addresses were probed.
         probed: How many addresses were probed.
         devices: The print servers found, ordered by address.
-        skipped: The local networks left out because each alone holds more than
-            :data:`MAX_HOSTS` addresses; empty when the networks were named.
+        skipped: The local networks left out because the :data:`MAX_HOSTS` budget was
+            spent before them; empty when the networks were named.
     """
 
     networks: tuple[IPv4Network, ...]
@@ -62,20 +69,16 @@ class DiscoveryReport(BaseModel, frozen=True, extra="forbid"):
 def discover(scanner: HostScanner, *, networks: Sequence[IPv4Network] | None, timeout: float) -> DiscoveryReport:
     """Probe every host address of ``networks`` on port 21.
 
-    Without ``networks`` the networks this host is attached to are probed, except any that alone
-    holds more than :data:`MAX_HOSTS` addresses (a container bridge is often a /16); those are
-    named in :attr:`DiscoveryReport.skipped` instead.
+    Without ``networks`` the networks this host is attached to are probed as far as
+    :data:`MAX_HOSTS` addresses reach, in the order the host reports them; the rest (a container
+    bridge is often a /16) are named in :attr:`DiscoveryReport.skipped` instead. Named networks
+    are never cut short: asked for explicitly, a partial sweep would answer a different question.
 
     Raises:
         ValueError: The named networks hold more than :data:`MAX_HOSTS` addresses together.
     """
-    skipped: tuple[IPv4Network, ...] = ()
-    if networks:
-        chosen = tuple(networks)
-    else:
-        local = scanner.local_networks()
-        chosen = tuple(network for network in local if network.num_addresses - 2 <= MAX_HOSTS)
-        skipped = tuple(network for network in local if network not in chosen)
+    scope = LocalScope(networks=tuple(networks)) if networks else scanner.local_scope(limit=MAX_HOSTS)
+    chosen, skipped = scope.networks, scope.skipped
     hosts = [str(host) for network in chosen for host in network.hosts()]
     if len(hosts) > MAX_HOSTS:
         raise ValueError(f"{len(hosts)} addresses to probe, more than {MAX_HOSTS}; name a smaller network")
@@ -89,4 +92,12 @@ def _device(hit: ProbeHit, scanner: HostScanner) -> DiscoveredDevice:
     return DiscoveredDevice(host=hit.host, mac_address=scanner.mac_address(hit.host))
 
 
-__all__ = ["MAX_HOSTS", "PRINT_SERVER_GREETING", "DiscoveredDevice", "DiscoveryReport", "ProbeHit", "discover"]
+__all__ = [
+    "MAX_HOSTS",
+    "PRINT_SERVER_GREETING",
+    "DiscoveredDevice",
+    "DiscoveryReport",
+    "LocalScope",
+    "ProbeHit",
+    "discover",
+]

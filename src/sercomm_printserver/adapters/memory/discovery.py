@@ -5,7 +5,9 @@ from __future__ import annotations
 from ipaddress import IPv4Address, IPv4Network
 from typing import TYPE_CHECKING
 
-from ...application.discovery import PRINT_SERVER_GREETING, ProbeHit
+import ipscout
+
+from ...application.discovery import PRINT_SERVER_GREETING, LocalScope, ProbeHit
 from ...domain.device_info import normalise_mac
 
 if TYPE_CHECKING:
@@ -21,7 +23,7 @@ class FakeScanner:
         hits: Host addresses that greet as print servers.
         others: Host address to its greeting, for FTP servers that are not print servers.
         macs: Host address to MAC address, as the neighbour cache would know it.
-        networks: What :meth:`local_networks` reports.
+        networks: The host's networks, in the order :meth:`local_scope` spends its budget on them.
     """
 
     def __init__(
@@ -41,9 +43,14 @@ class FakeScanner:
         self._networks = networks
         self.probed: list[str] = []
 
-    def local_networks(self) -> tuple[IPv4Network, ...]:
-        """Return the configured networks."""
-        return self._networks
+    def local_scope(self, *, limit: int) -> LocalScope:
+        """Split the configured networks by ipscout's own budget rule, as the real scanner does."""
+        scope = ipscout.SweepScope.from_networks(self._networks, limit=limit)
+        covered = set(scope.networks)
+        return LocalScope(
+            networks=tuple(network for network in self._networks if network in covered),
+            skipped=tuple(network for network in self._networks if network not in covered),
+        )
 
     def probe_ftp(self, hosts: Sequence[str], *, timeout: float) -> tuple[ProbeHit, ...]:
         """Answer from the tables; records every host asked."""

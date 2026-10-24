@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from ipaddress import IPv4Address, IPv4Network
+    from ipaddress import IPv4Address
     from pathlib import Path
 
     from lib_layered_config import Config
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from ..domain.device_info import MacAddress
     from ..domain.endpoint import DeviceEndpoint, PrintJob
     from ..domain.enums import DeployTarget, OutputFormat
-    from .discovery import ProbeHit
+    from .discovery import LocalScope, ProbeHit
     from .print_server import PrintServer
 
 
@@ -208,8 +208,8 @@ class OpenPrintServer(Protocol):
 class HostScanner(Protocol):
     """What discovery needs from the network."""
 
-    def local_networks(self) -> tuple[IPv4Network, ...]:
-        """Return the IPv4 networks this host is attached to."""
+    def local_scope(self, *, limit: int) -> LocalScope:
+        """Split the IPv4 networks this host is attached to by an address budget of ``limit``."""
         ...
 
     def probe_ftp(self, hosts: Sequence[str], *, timeout: float) -> tuple[ProbeHit, ...]:

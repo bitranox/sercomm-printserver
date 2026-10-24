@@ -68,7 +68,7 @@ def _skipped_notes(report: DiscoveryReport) -> list[str]:
 
     The flag is named here rather than in the use case, which knows nothing of the CLI.
     """
-    return [f"{network}: more than {MAX_HOSTS} addresses, name it with --network" for network in report.skipped]
+    return [f"{network}: beyond the {MAX_HOSTS}-address budget, name it with --network" for network in report.skipped]
 
 
 def _render(report: DiscoveryReport) -> str:

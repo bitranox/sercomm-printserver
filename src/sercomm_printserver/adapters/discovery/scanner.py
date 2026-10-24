@@ -10,12 +10,12 @@ neighbour cache passively (no privileges), and the probe's own connection put th
 
 from __future__ import annotations
 
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Network
 from typing import TYPE_CHECKING, Final
 
 import ipscout
 
-from ...application.discovery import ProbeHit
+from ...application.discovery import LocalScope, ProbeHit
 from ...domain.device_info import MacAddress, normalise_mac
 
 if TYPE_CHECKING:
@@ -38,9 +38,10 @@ class FtpBannerScanner:
         self._workers = workers
         self._ftp_port = ftp_port
 
-    def local_networks(self) -> tuple[IPv4Network, ...]:
-        """Return the IPv4 networks this host holds an address in (ipscout's sweep view)."""
-        return ipscout.local_networks()
+    def local_scope(self, *, limit: int) -> LocalScope:
+        """Return ipscout's sweep plan for this host's networks under a budget of ``limit``."""
+        scope = ipscout.sweep_scope(limit=limit)
+        return LocalScope(networks=_ipv4(scope.networks), skipped=_ipv4(scope.skipped))
 
     def probe_ftp(self, hosts: Sequence[str], *, timeout: float) -> tuple[ProbeHit, ...]:
         """Probe ``hosts`` concurrently; return the ones that greeted as an FTP server.
@@ -75,6 +76,11 @@ class FtpBannerScanner:
             return None if raw is None else normalise_mac(raw)
         except (ipscout.IPScoutError, ValueError):
             return None
+
+
+def _ipv4(networks: tuple[IPv4Network | IPv6Network, ...]) -> tuple[IPv4Network, ...]:
+    """Keep the IPv4 networks: the probe and the MAC lookup are IPv4 only."""
+    return tuple(network for network in networks if isinstance(network, IPv4Network))
 
 
 __all__ = ["FtpBannerScanner"]
