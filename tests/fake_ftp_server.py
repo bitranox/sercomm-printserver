@@ -5,9 +5,11 @@ It mirrors what a PS301 (firmware 6022) was measured to do: banner ``220 Print S
 other unknown verb, active-mode data connections only (it connects back to the ``PORT`` address),
 and one connection at a time.
 
-It is deterministic by construction: it binds its port in the constructor and starts listening
-only when told to, so a test can make connects fail with ECONNREFUSED and then let one through
-without any sleep.
+It is deterministic by construction: it reserves its port in the constructor and binds and
+listens only when told to, so a test can make connects fail with ECONNREFUSED and then let one
+through without any sleep. Nothing is bound while it refuses: a socket that is bound but not
+listening makes Linux and Windows answer a connect with RST, but macOS leaves the SYN unanswered
+until the client times out, and a real device that is not listening has nothing bound either.
 """
 
 from __future__ import annotations
@@ -74,7 +76,7 @@ class FakeFtpServer:
 
     Args:
         behaviour: How the fake device behaves.
-        listening: False binds the port but refuses connects until ``begin_listening``.
+        listening: False reserves the port but refuses connects until ``begin_listening``.
     """
 
     def __init__(self, behaviour: FakeFtpBehaviour, *, listening: bool = True) -> None:
@@ -90,11 +92,17 @@ class FakeFtpServer:
         self._listening = False
         if listening:
             self.begin_listening()
+        else:
+            # Release the port and keep only its number until begin_listening binds it again.
+            self._listener.close()
 
     def begin_listening(self) -> None:
         """Start accepting connections; until then a connect is refused."""
         if self._listening:
             return
+        if self._listener.fileno() == -1:
+            self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._listener.bind(("127.0.0.1", self.port))
         self._listening = True
         self._listener.listen(4)
         self._thread.start()

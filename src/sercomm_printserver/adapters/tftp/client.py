@@ -126,6 +126,12 @@ class _Transfer:
                 packet, sender = self._sock.recvfrom(_RECV_SIZE)
             except TimeoutError:
                 return None
+            except ConnectionResetError:
+                # Windows reports an ICMP port-unreachable for an earlier datagram as WSAECONNRESET
+                # on the next recvfrom of a UDP socket; Linux and macOS drop it. A device that
+                # restarts on RESET closes its port exactly like that, so read it as no reply and
+                # take the same retransmit and give-up path on every platform.
+                return None
             except OSError as exc:
                 raise self._lost(str(exc)) from exc
             if self._tid is None:

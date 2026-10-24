@@ -92,9 +92,15 @@ def test_a_device_that_closes_before_the_prompt_is_a_response_error() -> None:
 
 
 def test_a_device_that_resets_before_the_prompt_is_unavailable() -> None:
+    # The fake resets right after accept, and the client sends nothing it could wait for first.
+    # On macOS that reset can reach connect() itself ("could not be reached") rather than the
+    # first read ("broke the connection"); both are the same DeviceUnavailableError.
+    address = re.escape("127.0.0.1:")
     with (
         FakeTelnetServer(behaviour=TelnetBehaviour.RESET_BEFORE_PROMPT) as server,
-        pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{server.port} broke the connection")),
+        pytest.raises(
+            DeviceUnavailableError, match=rf"^{address}{server.port} (broke the connection|could not be reached): "
+        ),
     ):
         TelnetClient().monitor(_endpoint(server))
 
