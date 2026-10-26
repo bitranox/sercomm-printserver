@@ -19,6 +19,15 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   values are still refused over 4096 addresses (exit 22). The `HostScanner` port answers
   `local_scope(limit=)` with a `LocalScope` instead of `local_networks()`.
 
+### Fixed
+
+- The test suite no longer reads the app and host configuration layers of the machine it runs on.
+  An autouse fixture points lib_layered_config's three app-root variables (`LIB_LAYERED_CONFIG_ETC`,
+  `_MAC_APP_ROOT`, `_PROGRAMDATA`) at an empty directory under `tmp_path`, so a system-wide deploy
+  (for example a `/etc/xdg/<slug>/config.d/99-*.toml`) can no longer fail tests locally while CI stays
+  green. The subprocess tests in `test_display.py` and `test_logging_dotenv_isolation.py` dropped
+  every `LIB_LAYERED_CONFIG*` variable and so read the real system layers; they now keep the redirect.
+
 ## [0.1.0] 2026-10-24
 
 ### Added

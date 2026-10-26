@@ -73,7 +73,7 @@ dev = [
   "textual>=8.2.8",
   "import-linter>=2.15",
   "rtoml>=0.14.0",
-  "httpx2>=2.13.1",
+  "httpx2>=2.14.0",
   # Transitive CVE pins
   "click>=8.5.0",                # CVE-2026-7246
   "jaraco-context>=6.1.2",       # CVE-2025-23949
@@ -83,7 +83,7 @@ dev = [
   "urllib3>=2.8.0",              # CVE-2025-66471, CVE-2025-66418
   "virtualenv>=21.14.13",        # CVE-2025-22702, CVE-2026-113722, CVE-2026-113713, CVE-2026-115586
   "certifi>=2026.10.19",         # PYSEC-2026-4320
-  "filelock>=4.2.1; python_version>='3.11'", # CVE-2026-112906, -112914, -112940; no fixed release supports 3.10
+  "filelock>=4.2.4; python_version>='3.11'", # CVE-2026-112906, -112914, -112940; no fixed release supports 3.10
 ]
 
 [project.scripts]
