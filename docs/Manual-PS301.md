@@ -264,6 +264,13 @@ Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
   dauerte.
 - **Schreiben + Anwenden:** `put CONFIG`, Rücklesen, `get RESET`, bis das Gerät wieder
   antwortet: etwa 11 s.
+- **Rücklesen nach `put CONFIG`:** Einmal speicherte das Gerät einen Wert anders als gesendet
+  (`T4_S` 0 statt 1, nur `IP_ADDR` geändert); das nächste Hochladen speicherte ihn richtig. In
+  60 Wiederholungen danach (unverändert, `IP_ADDR` geändert und nicht angewendet, zurück)
+  stimmte jedes Rücklesen (2026-10-26). Die Ursache - ein verlorenes Byte beim Hochladen oder
+  eine Änderung im Gerät - ist offen. `write_config` lehnt ein abweichendes Rücklesen mit
+  `DeviceResponseError` ab und versucht es nicht selbst erneut, damit eine Änderung durch das
+  Gerät sichtbar bleibt; der Aufrufer lädt erneut hoch.
 - **IP-Wechsel:** Eine geänderte `IP_ADDR` gilt nach dem Neustart; das Gerät antwortet dann nur
   noch unter der neuen Adresse (Hin- und Rückweg gemessen).
 - **Pakete an jede IP:** Das Gerät beantwortet Pakete an jede IP-Adresse, die ein Rechner per

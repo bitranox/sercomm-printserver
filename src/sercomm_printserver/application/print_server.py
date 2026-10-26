@@ -166,7 +166,9 @@ class PrintServer:
             What changed, whether it was written and applied, and where the device answers.
 
         Raises:
-            DeviceResponseError: The device stored something other than what was sent.
+            DeviceResponseError: The device stored something other than what was sent. A PS301
+                has done this rarely and stored the next upload right, so call again; there is
+                no automatic retry, which would hide a device that really rewrites a value.
         """
         current = self.read_config()
         changes = diff_config(current, new)
