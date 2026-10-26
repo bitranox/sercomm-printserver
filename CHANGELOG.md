@@ -41,7 +41,7 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   waited 120 s for FTP at the borrowed address to go away and reported "did not go down". The
   SNMP agent does not answer at a borrowed address, so no uptime was read before the restart,
   and the FTP fallback never sees the short reboot (measured twice on a PS301). A restart is now
-  recognised by an uptime, read at the address the device answers on afterwards, that is shorter
+  recognised by an uptime, read at the address the device answers on afterwards, that is no longer
   than the time since the trigger; no uptime from before the trigger is needed. The same wait
   serves `reset` and configuration writes.
 - `reset` and configuration writes on a device that never answers SNMP now fail with

@@ -205,6 +205,19 @@ def test_a_restart_is_confirmed_by_snmp_that_answers_only_after_it() -> None:
     assert device.uptime_seconds < 5
 
 
+def test_a_restart_in_the_same_clock_tick_as_the_trigger_is_recognised() -> None:
+    # Windows' monotonic clock ticks coarsely, so a fake that boots at once reads the same time as
+    # the trigger: an uptime EQUAL to the time since the trigger is a restart too. Without one the
+    # uptime would be longer, by however long the device ran before.
+    clock = _ManualClock()
+    device = FakeDevice(config=_device().config, psinf=_device().psinf, monitor=_device().monitor_text, clock=clock)
+
+    _server(device, clock=clock).reset()
+
+    assert device.actions == [DeviceAction.RESET]
+    assert device.uptime_seconds <= 1.0
+
+
 def test_a_restarted_device_is_waited_for_until_ftp_answers_again() -> None:
     device = _device()
     device.ftp_down_after_reset = 2

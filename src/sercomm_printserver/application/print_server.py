@@ -193,7 +193,7 @@ class PrintServer:
 
         The device restarts about 5 s after the triggering session ends and keeps answering
         until then, so a call right after the trigger would land in the restart. With ``wait``
-        this returns only once the device has restarted (its SNMP uptime is shorter than the
+        this returns only once the device has restarted (its SNMP uptime is no longer than the
         time since the trigger) and answers FTP again.
 
         Raises:
@@ -286,7 +286,7 @@ class PrintServer:
     def _wait_for_restart(self, triggered: float, endpoint: DeviceEndpoint) -> None:
         """Wait until the device at ``endpoint`` has booted since ``triggered`` and answers FTP.
 
-        The proof is an uptime shorter than the time since the trigger, read at the address the
+        The proof is an uptime no longer than the time since the trigger, read at the address the
         device answers on afterwards. No uptime from before the trigger is needed, which matters:
         measured, the SNMP agent stays silent at a borrowed address (the ARP trick), and answers
         there only once the restart made that address its own. Watching FTP go down instead
@@ -301,7 +301,9 @@ class PrintServer:
             if uptime is None:
                 return False
             heard.append(uptime)
-            return uptime < self._clock() - triggered
+            # At most the time since the trigger: a device that did not restart has run longer, by
+            # however long it ran before. Equal counts - a coarse clock (Windows) gives equality.
+            return uptime <= self._clock() - triggered
 
         try:
             self._wait_until(deadline, restarted, host=endpoint.host, what="restart")
