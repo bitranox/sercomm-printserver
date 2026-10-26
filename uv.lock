@@ -1111,7 +1111,7 @@ wheels = [
 
 [[package]]
 name = "ipscout"
-version = "2.1.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1119,9 +1119,9 @@ dependencies = [
     { name = "rich-click" },
     { name = "rtoml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a0/e0/2434f0d0d6a913e1834d4c183ff8ae5c7c1880d3bd07fb56d6021b25dc54/ipscout-2.1.0.tar.gz", hash = "sha256:a0b670ff51b68c8217df0f6838f6f23d0a9a73135d3036dca43d5d166564a769", size = 292726, upload-time = "2026-10-24T17:18:51.933Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/c3/29df04a5e1367e608500a18a3d216e32b2136f2ca54ffb9d577c75cd0dab/ipscout-2.3.0.tar.gz", hash = "sha256:aadefaff04ed4e5bf55af58941f7cd413228c452036a8cc2c1cba1d22c5580e1", size = 401224, upload-time = "2026-10-26T11:45:18.621Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/90/2d01e597c6fd52473b306ce007dfb3ec9b6bc07d2ff7327a9b8ac408e132/ipscout-2.1.0-py3-none-any.whl", hash = "sha256:aef9594457cbaa985c27fe830ece439945ed0d0c35516b0945857b19dd9044a8", size = 201638, upload-time = "2026-10-24T17:18:50.301Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/69/e09dd2896d3c1899eab0f70328c5a55314155ce9a6b7c265a467ad9df5b4/ipscout-2.3.0-py3-none-any.whl", hash = "sha256:3638d42953686b7804b898748e705fd9949c753aa9e72ce10ce9189dabdcc8f2", size = 249481, upload-time = "2026-10-26T11:45:16.988Z" },
 ]
 
 [[package]]
@@ -1218,7 +1218,7 @@ wheels = [
 
 [[package]]
 name = "lib-log-rich"
-version = "6.5.7"
+version = "7.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1228,9 +1228,9 @@ dependencies = [
     { name = "rich" },
     { name = "rich-click" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/9d/a689aa5e239d950bd3520531124226b03fbe1ad64c2ba06cf5c35e54f05b/lib_log_rich-6.5.7.tar.gz", hash = "sha256:398a0b7add39043f025435d36eb52f7e8f679decef971c78d1e5ec7dad642b8f", size = 328531, upload-time = "2026-10-22T12:12:06.403Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/71/974de7e7a8fa0421971cb9a3fee8c8b1f2d5498e6a45197e5d4632b259cb/lib_log_rich-7.0.1.tar.gz", hash = "sha256:b586244418ebaa862688883a30bb5fc815d75224d6ff7d5e5080b09b135ddfe5", size = 376656, upload-time = "2026-10-26T12:38:39.514Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/4e/3a28d487df645a2f18b70e053fa9c991ec521da908e1ccd3a861f50de24f/lib_log_rich-6.5.7-py3-none-any.whl", hash = "sha256:aa111316d26d33c38323fa3713c187b598e788f38e0639a0a109c19e068a739e", size = 208822, upload-time = "2026-10-22T12:12:05.005Z" },
+    { url = "https://files.pythonhosted.org/packages/07/82/f4e4c15db52c90fdea86db6c1821c508e504f51533fed7f735c9f5fb5eeb/lib_log_rich-7.0.1-py3-none-any.whl", hash = "sha256:d4d60f6387d3b0aca83fc8086738af0b8014153ce26b244fdf38a76065ae838b", size = 228779, upload-time = "2026-10-26T12:38:38.277Z" },
 ]
 
 [[package]]
@@ -2313,11 +2313,11 @@ requires-dist = [
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.14.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.5" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
-    { name = "ipscout", specifier = ">=2.1.0" },
+    { name = "ipscout", specifier = ">=2.3.0" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
     { name = "lib-layered-config", specifier = ">=7.3.0" },
-    { name = "lib-log-rich", specifier = ">=6.5.7" },
+    { name = "lib-log-rich", specifier = ">=7.0.1" },
     { name = "orjson", specifier = ">=3.13.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.10.1" },
     { name = "pydantic", specifier = ">=2.14.1" },

@@ -22,6 +22,7 @@ from sercomm_printserver.composition import build_testing
 from sercomm_printserver.domain.config_codec import parse_config
 from sercomm_printserver.domain.device_files import DeviceAction
 from sercomm_printserver.domain.errors import HostPrivilegeError
+from sercomm_printserver.domain.neighbor import LookupMethod
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -171,6 +172,26 @@ def test_arp_without_admin_rights_exits_13_and_never_talks_to_the_device(
 
     assert result.exit_code == 13
     assert "CAP_NET_ADMIN" in result.output
+    assert (table.history, device.actions) == ([], [])
+
+
+@pytest.mark.parametrize(
+    ("command", "consent"),
+    [("reach", []), ("assign-ip", ["--yes"]), ("factory-reset", ["--yes", "--confirm-name", "SC123456"])],
+)
+def test_an_address_only_the_cache_was_asked_about_exits_13_and_is_never_borrowed(
+    cli_runner: CliRunner, device: FakeDevice, *, command: str, consent: list[str]
+) -> None:
+    table = FakeNeighborTable(method=LookupMethod.CACHE)
+
+    result = cli_runner.invoke(
+        cli_root.cli, ["arp", command, *_TARGET, *consent, "--json-bare"], obj=_services(device, table)
+    )
+
+    assert result.exit_code == 13, result.output
+    envelope = _json(result.stdout)
+    assert (envelope["ok"], envelope["error"]) == (False, "UnverifiedAddressError")
+    assert "cannot tell whether 192.0.2.77 is free" in str(envelope["message"])
     assert (table.history, device.actions) == ([], [])
 
 

@@ -18,6 +18,22 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   `<network>: beyond the 4096-address budget, name it with --network`. Named `--network`
   values are still refused over 4096 addresses (exit 22). The `HostScanner` port answers
   `local_scope(limit=)` with a `LocalScope` instead of `local_networks()`.
+- `SnmpUptime` reads `sysUpTime` through ipscout's `read_snmp_system` (requires
+  `ipscout>=2.3.0`) instead of its own BER code. A silent agent, a closed SNMP port and a host
+  that cannot be reached are `DeviceUnavailableError` ("gave no SNMP answer: silent" /
+  "refused" / "unreachable"); an agent error or a reply without sysUpTime is
+  `DeviceResponseError`.
+- The ARP trick (`arp reach`, `arp assign-ip`, `arp factory-reset` and the `arp_trick`
+  functions) refuses to borrow an address when this host could not send an ARP request and its
+  ARP cache does not know the address: `UnverifiedAddressError`, exit 13, before anything is
+  written. It used to fall back to the cache silently and borrow the address, although the cache
+  knows only hosts already talked to (measured: it reported nobody at the address of a live print
+  server). A cache entry naming another MAC is still refused, one naming the device still borrowed.
+- `NeighborTable.mac_of` is now `holder_of`, returning an `AddressHolder` (the MAC or None, and
+  `LookupMethod.ACTIVE` or `CACHE`); `IpscoutNeighborTable` asks through ipscout's
+  `lookup_mac(active=True, fallback_to_cache=True)`, which falls back to the cache only when it
+  cannot ask, instead of on any ipscout error. An address that is reached only through a router
+  is a `ValueError` naming the router; the cache read used to report nobody holding it.
 
 ### Fixed
 

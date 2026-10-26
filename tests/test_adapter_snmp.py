@@ -1,4 +1,9 @@
-"""SnmpUptime against a loopback UDP responder that builds its replies independently."""
+"""SnmpUptime through the real ipscout SNMP read, against a loopback UDP agent.
+
+The agent answers with ipscout's own BER codec: parsing BER is ipscout's job and tested there.
+What is tested here is the adapter's part - which read it asks for, and how each outcome
+becomes an uptime or a domain error.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import threading
 from typing import TYPE_CHECKING
 
 import pytest
+from ipscout import snmpber
 
 from sercomm_printserver.adapters.snmp import SnmpUptime
 from sercomm_printserver.domain.endpoint import DeviceEndpoint
@@ -14,39 +20,61 @@ from sercomm_printserver.domain.errors import DeviceResponseError, DeviceUnavail
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from typing import TypeAlias
 
     from sercomm_printserver.application.ports import UptimePort
 
-#: sysUpTime.0 as it appears in a request and a reply.
-_OID = bytes([0x06, 0x08, 0x2B, 6, 1, 2, 1, 1, 3, 0])
+    #: What the agent sends back for one parsed request; None stays silent.
+    _Answer: TypeAlias = Callable[[snmpber.SnmpMessage], bytes | None]
+    _MakeAgent: TypeAlias = Callable[[_Answer], "_Agent"]
+
+_UPTIME_OID = "1.3.6.1.2.1.1.3.0"
+#: SNMPv1 error status for an OID the agent does not know (RFC 1157).
+_NO_SUCH_NAME = 2
+_GEN_ERR = 5
 
 
-def _tlv(tag: int, body: bytes) -> bytes:
-    assert len(body) < 128
-    return bytes([tag, len(body)]) + body
+def _reply(
+    request: snmpber.SnmpMessage,
+    *,
+    error_status: int = 0,
+    error_index: int = 0,
+    bindings: tuple[snmpber.VarBind, ...] = (),
+) -> bytes:
+    return snmpber.encode_message(
+        request.model_copy(
+            update={
+                "pdu_tag": snmpber.GET_RESPONSE,
+                "error_status": error_status,
+                "error_index": error_index,
+                "bindings": bindings,
+            }
+        )
+    )
 
 
-def _request_id(request: bytes) -> bytes:
-    """The raw INTEGER element of the request id, read from the fixed request layout."""
-    community_length = request[6]
-    pdu_start = 7 + community_length
-    return request[pdu_start + 2 : pdu_start + 4 + request[pdu_start + 3]]
+def _uptime_only(ticks: int) -> Callable[[snmpber.SnmpMessage], bytes]:
+    """An agent that knows sysUpTime alone, as SNMPv1 says so: noSuchName for any other OID."""
+
+    def answer(request: snmpber.SnmpMessage) -> bytes:
+        oids = [binding.oid for binding in request.bindings]
+        unknown = [index for index, oid in enumerate(oids, start=1) if oid != _UPTIME_OID]
+        if unknown:
+            return _reply(request, error_status=_NO_SUCH_NAME, error_index=unknown[0], bindings=request.bindings)
+        value = snmpber.VarBind(oid=_UPTIME_OID, tag=snmpber.TIMETICKS, value=ticks.to_bytes(4, "big"))
+        return _reply(request, bindings=(value,))
+
+    return answer
 
 
-def _reply(request_id: bytes, *, ticks: int, error_status: int = 0, community: bytes = b"public") -> bytes:
-    varbind = _tlv(0x30, _OID + _tlv(0x43, ticks.to_bytes(4, "big")))
-    pdu = _tlv(0xA2, request_id + _tlv(0x02, bytes([error_status])) + _tlv(0x02, b"\x00") + _tlv(0x30, varbind))
-    return _tlv(0x30, _tlv(0x02, b"\x00") + _tlv(0x04, community) + pdu)
+class _Agent:
+    """Answers each request with ``answer(parsed request)``; None means stay silent."""
 
-
-class _Responder:
-    """Answers each datagram with ``answer(request)``; None means stay silent."""
-
-    def __init__(self, answer: Callable[[bytes], bytes | None]) -> None:
+    def __init__(self, answer: _Answer) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", 0))
         self.port: int = self.sock.getsockname()[1]
-        self.requests: list[bytes] = []
+        self.requests: list[snmpber.SnmpMessage] = []
         self._answer = answer
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
@@ -54,9 +82,10 @@ class _Responder:
     def _serve(self) -> None:
         while True:
             try:
-                request, client = self.sock.recvfrom(1500)
+                data, client = self.sock.recvfrom(1500)
             except OSError:
                 return
+            request = snmpber.parse_message(data)
             self.requests.append(request)
             reply = self._answer(request)
             if reply is not None:
@@ -67,17 +96,17 @@ class _Responder:
 
 
 @pytest.fixture
-def responder_factory() -> Iterator[Callable[[Callable[[bytes], bytes | None]], _Responder]]:
-    made: list[_Responder] = []
+def agent_factory() -> Iterator[_MakeAgent]:
+    made: list[_Agent] = []
 
-    def make(answer: Callable[[bytes], bytes | None]) -> _Responder:
-        responder = _Responder(answer)
-        made.append(responder)
-        return responder
+    def make(answer: _Answer) -> _Agent:
+        agent = _Agent(answer)
+        made.append(agent)
+        return agent
 
     yield make
-    for responder in made:
-        responder.close()
+    for agent in made:
+        agent.close()
 
 
 _ENDPOINT = DeviceEndpoint(host="127.0.0.1", timeout=0.5)
@@ -88,79 +117,67 @@ def test_the_adapter_satisfies_the_port() -> None:
     assert port is not None
 
 
-def test_uptime_is_read_from_the_timeticks_in_seconds(
-    responder_factory: Callable[[Callable[[bytes], bytes | None]], _Responder],
-) -> None:
-    responder = responder_factory(lambda request: _reply(_request_id(request), ticks=4470))
+def test_uptime_is_read_from_the_timeticks_in_seconds(agent_factory: _MakeAgent) -> None:
+    agent = agent_factory(_uptime_only(4470))
 
-    assert SnmpUptime(port=responder.port).uptime(_ENDPOINT) == 44.7
-    request = responder.requests[0]
-    assert b"\x04\x06public" in request
-    assert _OID + b"\x05\x00" in request
+    assert SnmpUptime(port=agent.port).uptime(_ENDPOINT) == 44.7
+    assert agent.requests[0].version == 0, "SNMPv1, the version the PS301 agent speaks"
+    assert agent.requests[0].community == b"public"
+    assert _UPTIME_OID in [binding.oid for binding in agent.requests[0].bindings]
 
 
-def test_the_community_is_configurable(
-    responder_factory: Callable[[Callable[[bytes], bytes | None]], _Responder],
-) -> None:
-    responder = responder_factory(lambda request: _reply(_request_id(request), ticks=1))
+def test_the_community_is_configurable(agent_factory: _MakeAgent) -> None:
+    agent = agent_factory(_uptime_only(1))
 
-    SnmpUptime(community="secret", port=responder.port).uptime(_ENDPOINT)
+    SnmpUptime(community="secret", port=agent.port).uptime(_ENDPOINT)
 
-    assert b"\x04\x06secret" in responder.requests[0]
+    assert {request.community for request in agent.requests} == {b"secret"}
 
 
-def test_a_silent_device_is_unavailable(
-    responder_factory: Callable[[Callable[[bytes], bytes | None]], _Responder],
-) -> None:
-    responder = responder_factory(lambda _request: None)
+def test_a_silent_device_is_unavailable(agent_factory: _MakeAgent) -> None:
+    agent = agent_factory(lambda _request: None)
+
+    with pytest.raises(DeviceUnavailableError, match=r"127\.0\.0\.1:\d+ gave no SNMP answer: silent"):
+        SnmpUptime(port=agent.port).uptime(_ENDPOINT)
+
+
+def test_a_closed_snmp_port_is_unavailable() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
 
     with pytest.raises(DeviceUnavailableError, match="gave no SNMP answer"):
-        SnmpUptime(port=responder.port).uptime(_ENDPOINT)
+        SnmpUptime(port=closed_port).uptime(_ENDPOINT)
 
 
-def _error_status(request: bytes) -> bytes:
-    return _reply(_request_id(request), ticks=1, error_status=2)
+def test_an_unresolvable_host_is_unavailable() -> None:
+    with pytest.raises(DeviceUnavailableError, match="gave no SNMP answer: unreachable"):
+        SnmpUptime().uptime(DeviceEndpoint(host="printer.invalid", timeout=0.5))
 
 
-def _other_request(_request: bytes) -> bytes:
-    return _reply(_tlv(0x02, b"\x07\x07"), ticks=1)
-
-
-def _truncated(_request: bytes) -> bytes:
-    return b"\x30\x05\x02\x01"
-
-
-def _not_a_sequence(_request: bytes) -> bytes:
-    return b"\x04\x00"
-
-
-@pytest.mark.parametrize(
-    ("answer", "message"),
-    [
-        (_error_status, "error status 2"),
-        (_other_request, "another SNMP request"),
-        (_truncated, "malformed SNMP reply"),
-        (_not_a_sequence, "malformed SNMP reply"),
-    ],
-    ids=["error-status", "wrong-request-id", "truncated", "not-a-sequence"],
-)
-def test_a_reply_that_is_not_the_answer_is_refused(
-    responder_factory: Callable[[Callable[[bytes], bytes | None]], _Responder],
-    answer: Callable[[bytes], bytes | None],
-    message: str,
-) -> None:
-    responder = responder_factory(answer)
-
-    with pytest.raises(DeviceResponseError, match=message):
-        SnmpUptime(port=responder.port).uptime(_ENDPOINT)
-
-
-def test_a_community_containing_the_timeticks_tag_is_not_mistaken_for_the_value(
-    responder_factory: Callable[[Callable[[bytes], bytes | None]], _Responder],
-) -> None:
-    community = "C" + chr(0x43) + chr(0x04)
-    responder = responder_factory(
-        lambda request: _reply(_request_id(request), ticks=250, community=community.encode("ascii"))
+def test_an_agent_error_is_a_response_error(agent_factory: _MakeAgent) -> None:
+    agent = agent_factory(
+        lambda request: _reply(request, error_status=_GEN_ERR, error_index=1, bindings=request.bindings)
     )
 
-    assert SnmpUptime(community=community, port=responder.port).uptime(_ENDPOINT) == 2.5
+    with pytest.raises(DeviceResponseError, match=r"unusable SNMP reply: .*genErr"):
+        SnmpUptime(port=agent.port).uptime(_ENDPOINT)
+
+
+def test_an_agent_without_sysuptime_is_a_response_error(agent_factory: _MakeAgent) -> None:
+    # noSuchName for the first OID of every request: ipscout drops one per re-ask until none is left.
+    agent = agent_factory(
+        lambda request: _reply(request, error_status=_NO_SUCH_NAME, error_index=1, bindings=request.bindings)
+    )
+
+    with pytest.raises(DeviceResponseError, match="without sysUpTime"):
+        SnmpUptime(port=agent.port).uptime(_ENDPOINT)
+
+
+def test_a_community_never_appears_in_an_error(agent_factory: _MakeAgent) -> None:
+    agent = agent_factory(lambda _request: b"\x30\x05\x02\x01")
+
+    with pytest.raises((DeviceResponseError, DeviceUnavailableError)) as caught:
+        SnmpUptime(community="s3cr3t-community", port=agent.port).uptime(_ENDPOINT)
+
+    assert "s3cr3t-community" not in str(caught.value)

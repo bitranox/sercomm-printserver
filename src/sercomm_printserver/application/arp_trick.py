@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from ..domain.device_info import DeviceInfo, MacAddress, default_name_from_mac, mac_from_default_name, normalise_mac
-from ..domain.errors import ConfigFormatError, ConfirmationRequiredError
+from ..domain.errors import ConfigFormatError, ConfirmationRequiredError, UnverifiedAddressError
 from .print_server import ConfigWriteResult
 
 if TYPE_CHECKING:
@@ -54,11 +54,22 @@ def borrowed_address(table: NeighborTable, *, ip: IPv4Address, mac: MacAddress) 
     they are; :func:`~sercomm_printserver.domain.device_info.normalise_mac` makes one.
 
     Raises:
-        ValueError: This host already maps ``ip`` to another MAC - something else holds it.
+        ValueError: Another MAC holds ``ip`` on this network.
+        UnverifiedAddressError: This host could not send an ARP request and its cache does not
+            know ``ip``, so nothing shows the address is free.
     """
-    holder = table.mac_of(ip)
-    if holder is not None and holder != mac:
-        raise ValueError(f"{ip} belongs to {holder} on this network; borrow a free address")
+    holder = table.holder_of(ip)
+    if holder.mac is not None and holder.mac != mac:
+        raise ValueError(f"{ip} belongs to {holder.mac} on this network; borrow a free address")
+    if holder.mac is None and not holder.is_known_free:
+        # Refused, not warned (user decision 2026-10-26): measured, a cache read reported nobody at
+        # the address of a live print server, and a borrowed address that is in use sends its
+        # holder's traffic to the device.
+        raise UnverifiedAddressError(
+            f"cannot tell whether {ip} is free: this host could not send an ARP request (it needs root or "
+            f"CAP_NET_RAW on Linux, root on macOS, or an interface that reaches {ip}) and its ARP cache "
+            "does not know the address"
+        )
     table.set_static(ip, mac)
     try:
         yield
@@ -85,6 +96,8 @@ def reach(
 
     Raises:
         ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
+        UnverifiedAddressError: Nothing shows ``ip`` is free: no ARP request could be sent and
+            this host's cache does not know the address.
     """
     device_mac = normalise_mac(mac)
     with borrowed_address(table, ip=ip, mac=device_mac):
@@ -113,6 +126,8 @@ def assign_ip(
         DeviceResponseError: The device behind the MAC is not one of this family, or stored
             something else than was written.
         ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
+        UnverifiedAddressError: Nothing shows ``ip`` is free: no ARP request could be sent and
+            this host's cache does not know the address.
     """
     device_mac = normalise_mac(mac)
     with borrowed_address(table, ip=ip, mac=device_mac):
@@ -141,6 +156,8 @@ def factory_reset(
         ConfirmationRequiredError: ``confirm_name`` is not the device's default name derived
             from ``mac``.
         ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
+        UnverifiedAddressError: Nothing shows ``ip`` is free: no ARP request could be sent and
+            this host's cache does not know the address.
     """
     device_mac = normalise_mac(mac)
     expected = default_name_from_mac(device_mac)

@@ -81,6 +81,19 @@ class HostPrivilegeError(PermissionError):
     """
 
 
+class UnverifiedAddressError(PermissionError):
+    """The ARP trick could not prove the address it would borrow is free, so it refused.
+
+    This host could not send an ARP request - it lacked the right to (root or ``CAP_NET_RAW``
+    on Linux, root on macOS) or no interface reaches the address - and its ARP cache, which
+    knows only hosts already talked to, has no entry for the address.
+
+    Example:
+        >>> isinstance(UnverifiedAddressError("cannot tell whether 192.0.2.77 is free"), PermissionError)
+        True
+    """
+
+
 class NeighborTableError(OSError):
     """This host could not write or remove a static ARP entry for a reason other than privilege.
 
@@ -99,4 +112,5 @@ __all__ = [
     "DeviceUnavailableError",
     "HostPrivilegeError",
     "NeighborTableError",
+    "UnverifiedAddressError",
 ]

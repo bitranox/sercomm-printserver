@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ..domain.device_info import MacAddress
     from ..domain.endpoint import DeviceEndpoint, PrintJob
     from ..domain.enums import DeployTarget, OutputFormat
+    from ..domain.neighbor import AddressHolder
     from .discovery import LocalScope, ProbeHit
     from .print_server import PrintServer
 
@@ -188,8 +189,8 @@ class NeighborTable(Protocol):
         """Remove the entry for ``ip``; True when there was one."""
         ...
 
-    def mac_of(self, ip: IPv4Address) -> MacAddress | None:
-        """Return the MAC this host currently maps ``ip`` to, or None."""
+    def holder_of(self, ip: IPv4Address) -> AddressHolder:
+        """Return the MAC holding ``ip`` (or None) and whether an ARP request or the cache said so."""
         ...
 
 

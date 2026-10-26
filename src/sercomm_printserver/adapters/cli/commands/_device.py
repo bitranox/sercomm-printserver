@@ -24,6 +24,7 @@ from sercomm_printserver.domain.errors import (
     DeviceUnavailableError,
     HostPrivilegeError,
     NeighborTableError,
+    UnverifiedAddressError,
 )
 
 from .. import safe_console
@@ -48,13 +49,15 @@ _P = TypeVar("_P", bound="BaseModel")
 _F = TypeVar("_F", bound="Callable[..., Any]")
 
 #: Known failures and their exit codes, most specific first: DeviceResponseError and
-#: ConfigFormatError are both ValueErrors, and the refusals and HostPrivilegeError are all
-#: PermissionErrors - only the last says THIS host lacks a right, so it alone exits 13.
+#: ConfigFormatError are both ValueErrors, and the refusals, HostPrivilegeError and
+#: UnverifiedAddressError are all PermissionErrors - only the last two say THIS host lacks what
+#: it needs (the right to change its tables, or to send an ARP request), so they alone exit 13.
 _EXIT_CODES: tuple[tuple[type[Exception], ExitCode], ...] = (
     (ConfigurationError, ExitCode.CONFIG_ERROR),
     (DeviceUnavailableError, ExitCode.DEVICE_UNAVAILABLE),
     (DeviceResponseError, ExitCode.PROTOCOL_ERROR),
     (HostPrivilegeError, ExitCode.PERMISSION_DENIED),
+    (UnverifiedAddressError, ExitCode.PERMISSION_DENIED),
     (NeighborTableError, ExitCode.GENERAL_ERROR),
     (AuthenticationRequiredError, ExitCode.REFUSED),
     (ConfirmationRequiredError, ExitCode.REFUSED),

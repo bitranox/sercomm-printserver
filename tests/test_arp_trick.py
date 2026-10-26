@@ -16,7 +16,8 @@ from sercomm_printserver.domain.config_codec import parse_config, render_config,
 from sercomm_printserver.domain.device_files import DeviceAction
 from sercomm_printserver.domain.device_info import normalise_mac, parse_psinf
 from sercomm_printserver.domain.endpoint import DeviceEndpoint
-from sercomm_printserver.domain.errors import ConfigFormatError, ConfirmationRequiredError
+from sercomm_printserver.domain.errors import ConfigFormatError, ConfirmationRequiredError, UnverifiedAddressError
+from sercomm_printserver.domain.neighbor import AddressHolder, LookupMethod
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -50,7 +51,7 @@ def _opener(device: FakeDevice) -> Callable[[DeviceEndpoint], PrintServer]:
 
 def test_the_fake_table_satisfies_the_port() -> None:
     table: NeighborTable = FakeNeighborTable()
-    assert table.mac_of(IPv4Address("192.0.2.1")) is None
+    assert table.holder_of(IPv4Address("192.0.2.1")) == AddressHolder(mac=None, method=LookupMethod.ACTIVE)
 
 
 def test_reach_reads_the_device_and_leaves_no_entry_behind() -> None:
@@ -137,6 +138,38 @@ def test_an_address_another_host_holds_is_not_borrowed() -> None:
     ):
         pass
     assert table.entries == {_IP: holder}
+
+
+def test_an_address_only_the_cache_knows_nothing_about_is_not_borrowed() -> None:
+    # The cache knows only hosts this machine has talked to, so its silence proves nothing.
+    table = FakeNeighborTable(method=LookupMethod.CACHE)
+
+    with (
+        pytest.raises(UnverifiedAddressError, match=r"cannot tell whether 192\.0\.2\.77 is free"),
+        borrowed_address(table, ip=_IP, mac=_DEVICE_MAC),
+    ):
+        pass
+    assert table.history == []
+
+
+def test_the_cache_still_shows_an_address_another_host_holds() -> None:
+    holder = normalise_mac("aa:bb:cc:dd:ee:ff")
+    table = FakeNeighborTable({_IP: holder}, method=LookupMethod.CACHE)
+
+    with (
+        pytest.raises(ValueError, match="belongs to aa:bb:cc:dd:ee:ff"),
+        borrowed_address(table, ip=_IP, mac=_DEVICE_MAC),
+    ):
+        pass
+    assert table.history == []
+
+
+def test_an_address_the_cache_maps_to_the_device_is_borrowed_again() -> None:
+    table = FakeNeighborTable({_IP: _DEVICE_MAC}, method=LookupMethod.CACHE)
+
+    reach(table, _opener(_device()), endpoint=_SESSION, ip=_IP, mac=_MAC)
+
+    assert table.history == _SET_AND_REMOVED
 
 
 def test_an_address_this_host_already_maps_to_the_device_is_borrowed_again() -> None:

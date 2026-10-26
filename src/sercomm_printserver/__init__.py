@@ -40,7 +40,9 @@ from .domain.errors import (
     DeviceUnavailableError,
     HostPrivilegeError,
     NeighborTableError,
+    UnverifiedAddressError,
 )
+from .domain.neighbor import AddressHolder, LookupMethod
 from .domain.port_status import PortStatus
 
 
@@ -69,6 +71,7 @@ def _network(text: str) -> IPv4Network:
 
 
 __all__ = [
+    "AddressHolder",
     "AuthenticationRequiredError",
     "ConfigChange",
     "ConfigFormatError",
@@ -84,11 +87,13 @@ __all__ = [
     "DiscoveryReport",
     "HostPrivilegeError",
     "IpscoutNeighborTable",
+    "LookupMethod",
     "MacAddress",
     "NeighborTableError",
     "PortStatus",
     "PrintJob",
     "PrintServer",
+    "UnverifiedAddressError",
     "arp_trick",
     "discover_print_servers",
     "get_config",

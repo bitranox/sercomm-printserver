@@ -54,21 +54,22 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 
 ### Domain (`src/sercomm_printserver/domain/`)
 
-| Module                | Contents                                                                           |
-|-----------------------|------------------------------------------------------------------------------------|
-| `config_lines.py`     | `ConfigLine`, `split_lines`, `join_lines`: the `NNNN TOKEN:VALUE` line format      |
-| `config_catalogue.py` | Line numbers and tokens of the modelled CONFIG parameters                          |
-| `config_types.py`     | Value types (`Text15`, `Byte`, `BaudRate`, `Parity`, `LptMode`, ...)               |
-| `config_model.py`     | `DeviceConfig` and its sections (`TcpIp`, `Smb`, `Snmp`, `NetWare`, ...)           |
-| `config_reader.py`    | `read_config`: lines to `DeviceConfig`                                             |
-| `config_writer.py`    | `write_config`: `DeviceConfig` back to lines                                       |
-| `config_codec.py`     | `parse_config`, `render_config`, `diff_config`, `with_value`, `ConfigChange`       |
-| `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP) |
-| `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                      |
-| `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`           |
-| `port_status.py`      | `PortStatus`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`            |
-| `enums.py`            | `OutputFormat`, `DeployTarget`                                                     |
-| `errors.py`           | The exception types (see Exit Codes)                                               |
+| Module                | Contents                                                                              |
+|-----------------------|---------------------------------------------------------------------------------------|
+| `config_lines.py`     | `ConfigLine`, `split_lines`, `join_lines`: the `NNNN TOKEN:VALUE` line format         |
+| `config_catalogue.py` | Line numbers and tokens of the modelled CONFIG parameters                             |
+| `config_types.py`     | Value types (`Text15`, `Byte`, `BaudRate`, `Parity`, `LptMode`, ...)                  |
+| `config_model.py`     | `DeviceConfig` and its sections (`TcpIp`, `Smb`, `Snmp`, `NetWare`, ...)              |
+| `config_reader.py`    | `read_config`: lines to `DeviceConfig`                                                |
+| `config_writer.py`    | `write_config`: `DeviceConfig` back to lines                                          |
+| `config_codec.py`     | `parse_config`, `render_config`, `diff_config`, `with_value`, `ConfigChange`          |
+| `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP)    |
+| `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                         |
+| `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`              |
+| `port_status.py`      | `PortStatus`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`               |
+| `neighbor.py`         | `AddressHolder`, `LookupMethod`: who holds an address, asked by ARP or from the cache |
+| `enums.py`            | `OutputFormat`, `DeployTarget`                                                        |
+| `errors.py`           | The exception types (see Exit Codes)                                                  |
 
 ### Application (`src/sercomm_printserver/application/`)
 
@@ -98,11 +99,12 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 ### Adapters (`src/sercomm_printserver/adapters/`)
 
 * `ftp/`, `telnet/` (`client.py`, `iac.py`), `tftp/`, `lpd/`, `raw/`, `snmp/` - one protocol
-  client each; `snmp` reads only `sysUpTime` with one SNMPv1 GET.
+  client each; `snmp` reads `sysUpTime` through ipscout's `read_snmp_system` (SNMPv1).
 * `discovery/scanner.py` - `FtpBannerScanner`: FTP-port probes (ipscout's `grab_banners`, one
   connection per host), MACs and local networks, all through ipscout.
 * `neighbors/table.py` - `IpscoutNeighborTable`: static ARP entries; maps ipscout's refusal to
-  `HostPrivilegeError`.
+  `HostPrivilegeError`. `holder_of` asks with an ARP request, reads the cache only when it
+  cannot, and says which (`AddressHolder.method`).
 * `config/` - layered configuration (`loader.py`, `deploy.py`, `display.py`, `overrides.py`) and
   `device_settings.py` (`DeviceSettings`, `resolve_endpoint`) for the `[device]` section.
 * `logging/setup.py` - lib_log_rich initialization.
@@ -161,21 +163,21 @@ Root options: `--version`, `--traceback/--no-traceback`, `--profile NAME`,
 `ExitCode` in `adapters/cli/exit_codes.py`; device commands map errors through `exit_code_for`
 in `adapters/cli/commands/_device.py` (first match wins, anything else exits 1).
 
-| Code | Name                 | Raised for                                                                      |
-|------|----------------------|---------------------------------------------------------------------------------|
-| 0    | `SUCCESS`            | Command completed                                                               |
-| 1    | `GENERAL_ERROR`      | `NeighborTableError`, or any unmapped failure                                   |
-| 2    | `FILE_NOT_FOUND`     | click's usage error (bad option or missing argument); no command raises it      |
-| 13   | `PERMISSION_DENIED`  | `HostPrivilegeError` (no right to change the ARP table); config-deploy refusals |
-| 22   | `INVALID_ARGUMENT`   | `ValueError`, including `ConfigFormatError`; config section not found           |
-| 69   | `DEVICE_UNAVAILABLE` | `DeviceUnavailableError`: refused, timed out, no route                          |
-| 76   | `PROTOCOL_ERROR`     | `DeviceResponseError`: the device answered in an unexpected form                |
-| 77   | `REFUSED`            | `ConfirmationRequiredError`, `AuthenticationRequiredError`                      |
-| 78   | `CONFIG_ERROR`       | `ConfigurationError`: configuration missing, not loadable or invalid            |
-| 110  | `TIMEOUT`            | Defined in the enum; no command exits with it                                   |
-| 130  | `SIGNAL_INT`         | SIGINT (translated by lib_cli_exit_tools)                                       |
-| 141  | `BROKEN_PIPE`        | Output pipe closed                                                              |
-| 143  | `SIGNAL_TERM`        | SIGTERM                                                                         |
+| Code | Name                 | Raised for                                                                                                                                               |
+|------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0    | `SUCCESS`            | Command completed                                                                                                                                        |
+| 1    | `GENERAL_ERROR`      | `NeighborTableError`, or any unmapped failure                                                                                                            |
+| 2    | `FILE_NOT_FOUND`     | click's usage error (bad option or missing argument); no command raises it                                                                               |
+| 13   | `PERMISSION_DENIED`  | `HostPrivilegeError` (no right to change the ARP table), `UnverifiedAddressError` (no ARP request possible, cache knows nothing); config-deploy refusals |
+| 22   | `INVALID_ARGUMENT`   | `ValueError`, including `ConfigFormatError`; config section not found                                                                                    |
+| 69   | `DEVICE_UNAVAILABLE` | `DeviceUnavailableError`: refused, timed out, no route                                                                                                   |
+| 76   | `PROTOCOL_ERROR`     | `DeviceResponseError`: the device answered in an unexpected form                                                                                         |
+| 77   | `REFUSED`            | `ConfirmationRequiredError`, `AuthenticationRequiredError`                                                                                               |
+| 78   | `CONFIG_ERROR`       | `ConfigurationError`: configuration missing, not loadable or invalid                                                                                     |
+| 110  | `TIMEOUT`            | Defined in the enum; no command exits with it                                                                                                            |
+| 130  | `SIGNAL_INT`         | SIGINT (translated by lib_cli_exit_tools)                                                                                                                |
+| 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                                                                       |
+| 143  | `SIGNAL_TERM`        | SIGTERM                                                                                                                                                  |
 
 ## Implementation Details
 
