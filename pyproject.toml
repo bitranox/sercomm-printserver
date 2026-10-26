@@ -1,6 +1,6 @@
 [project]
 name = "sercomm-printserver"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI and Python library for SerComm-based network print servers (PS301 and OEM variants)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,12 +10,12 @@ dependencies = [
     "click>=8.5.0",
     "lib_cli_exit_tools>=2.4.1",
     # 6.4.2: validate_config, the check config --profile runs, refuses exactly what init() refuses.
-    "lib_log_rich>=7.1.0",
+    "lib_log_rich>=7.2.0",
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.3.0",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
-    "ipscout>=2.3.0",
+    "ipscout>=2.4.0",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]

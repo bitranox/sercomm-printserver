@@ -1111,7 +1111,7 @@ wheels = [
 
 [[package]]
 name = "ipscout"
-version = "2.3.0"
+version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1119,9 +1119,9 @@ dependencies = [
     { name = "rich-click" },
     { name = "rtoml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/c3/29df04a5e1367e608500a18a3d216e32b2136f2ca54ffb9d577c75cd0dab/ipscout-2.3.0.tar.gz", hash = "sha256:aadefaff04ed4e5bf55af58941f7cd413228c452036a8cc2c1cba1d22c5580e1", size = 401224, upload-time = "2026-10-26T11:45:18.621Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/5e/ccfeb069bf7b047ea66b4c0fcf66c009cf1589282d6f8ccd9cdffb323144/ipscout-2.4.0.tar.gz", hash = "sha256:f773dffaf14dc9ac80d4f79f3b86fe5ceca85d33292f36c54bafd8dea6968c48", size = 446025, upload-time = "2026-10-26T15:45:32.536Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/69/e09dd2896d3c1899eab0f70328c5a55314155ce9a6b7c265a467ad9df5b4/ipscout-2.3.0-py3-none-any.whl", hash = "sha256:3638d42953686b7804b898748e705fd9949c753aa9e72ce10ce9189dabdcc8f2", size = 249481, upload-time = "2026-10-26T11:45:16.988Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/0d/98885eda42e783a5c3df14a825d1ddfa52e847d64943b0e726959248cd6c/ipscout-2.4.0-py3-none-any.whl", hash = "sha256:150d5c8f63965d1a2204dd07416f55f645fc8e75cf1a6976ac27004c4e4f7197", size = 264953, upload-time = "2026-10-26T15:45:30.616Z" },
 ]
 
 [[package]]
@@ -1218,19 +1218,19 @@ wheels = [
 
 [[package]]
 name = "lib-log-rich"
-version = "7.1.0"
+version = "7.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
-    { name = "orjson" },
+    { name = "orjson", marker = "python_full_version < '3.15'" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "rich-click" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/80/600f2f68c5796ad1773b98ad4d0e1844a01c30acacb387eab94b32574a69/lib_log_rich-7.1.0.tar.gz", hash = "sha256:70f9cfc233b6f5bf2269d100165acad34db105ecc2693566611fed13a1df74b0", size = 381622, upload-time = "2026-10-26T14:40:13.548Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/10/6460c3d2150807c6a69d2ec6e25f14f43df3b85eeebbe4e525ea4a1797b1/lib_log_rich-7.2.0.tar.gz", hash = "sha256:c5ac18525bbd60e63656962fd6baad1a1d7040bd6660e2c65d6f54912fe77d3c", size = 387937, upload-time = "2026-10-26T16:35:47.449Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/d4/fd4a6cd0b77f73975e02a03cbbdf5e3b0ab3ac4adf032668e1ef8a5bbe16/lib_log_rich-7.1.0-py3-none-any.whl", hash = "sha256:ffbe1bf31b5f9afcb4c356afbdf06f4a554b27c3c3d5773cf5f33300a5ebbfbd", size = 230427, upload-time = "2026-10-26T14:40:11.677Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/cc/dd4ae2d5994afaae4b51b27c54b7ffd69a77da754ecbccea035564fb6752/lib_log_rich-7.2.0-py3-none-any.whl", hash = "sha256:fb66fdd6dd4e34317e3922c2726a43b76ed86f2e526f97353d531624ac34e365", size = 233382, upload-time = "2026-10-26T16:35:45.7Z" },
 ]
 
 [[package]]
@@ -2259,7 +2259,7 @@ wheels = [
 
 [[package]]
 name = "sercomm-printserver"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -2313,11 +2313,11 @@ requires-dist = [
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.14.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.5" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
-    { name = "ipscout", specifier = ">=2.3.0" },
+    { name = "ipscout", specifier = ">=2.4.0" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
     { name = "lib-layered-config", specifier = ">=7.3.0" },
-    { name = "lib-log-rich", specifier = ">=7.1.0" },
+    { name = "lib-log-rich", specifier = ">=7.2.0" },
     { name = "orjson", specifier = ">=3.13.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.10.1" },
     { name = "pydantic", specifier = ">=2.14.1" },

@@ -6,6 +6,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.2.0] 2026-10-26 18:46:01
+
 ### Changed
 
 - `discover` probes port 21 through ipscout's `grab_banners` (requires `ipscout>=2.1.0`), still
