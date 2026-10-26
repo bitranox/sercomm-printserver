@@ -2,7 +2,8 @@
 
 Run with ``SERCOMM_E2E=1 pytest -m device tests/test_e2e_device.py``. They run in file order,
 from harmless to riskier: reading (through the library and the CLI), a RAW and an LPD job that
-the restart in their finally clause clears, a harmless parameter, the password, ``store-ip``, and
+the restart in their finally clause clears, ``store-ip`` over a written but unapplied address, a
+harmless parameter, the password, and
 moving the device to a free address and back - once through CONFIG and, as root (``sudo``), once
 through the ARP trick. Nothing here uploads firmware or restores factory defaults, and no test
 opens a RAW print port without sending data (a bare connect occupies it for minutes).
@@ -386,20 +387,29 @@ def test_the_arp_trick_reaches_the_device_at_a_borrowed_address(device: _TestDev
     assert not _has_permanent_entry(borrowed)
 
 
-def test_store_ip_keeps_a_static_device_as_it_is(server: PrintServer, device: _TestDevice) -> None:
-    # SETIP stores the address the device holds as its own; measured, it ignores an address
-    # borrowed through the ARP trick. On a static device it therefore changes nothing, and it
-    # does not restart the device: the uptime keeps counting.
-    before_text, before_uptime = server.read_config_text(), _uptime(str(device.host))
-    assert before_uptime is not None
+def test_store_ip_stores_the_running_address_over_a_written_one(server: PrintServer, device: _TestDevice) -> None:
+    # SETIP stores the address the device runs on. The moment it differs from the stored one is
+    # mid-move: a new IP_ADDR written but not applied. SETIP then writes the running address back
+    # over it at once, without a restart (measured), so the device never leaves its address.
+    home, away = str(device.host), _free_address(device)
+    original = server.read_config()
+    try:
+        server.write_config(with_value(original, "IP_ADDR", away), apply=False)
+        written = server.read_config().tcp_ip.ip_address
+        before = _uptime(home)
+        server.store_ip(confirm_name=device.box_name)
+        stored = server.read_config().tcp_ip.ip_address
+        time.sleep(_NO_RESTART_SECONDS)
+        after = _uptime(home)
+    finally:
+        if server.read_config() != original:
+            server.write_config(original, apply=False)
 
-    server.store_ip(confirm_name=device.box_name)
-    time.sleep(_NO_RESTART_SECONDS)
-
-    after_uptime = _uptime(str(device.host))
-    assert after_uptime is not None
-    assert after_uptime > before_uptime + _NO_RESTART_SECONDS / 2
-    assert server.read_config_text() == before_text
+    assert (written, stored) == (IPv4Address(away), device.host)
+    assert before is not None
+    assert after is not None
+    assert after > before + _NO_RESTART_SECONDS / 2, "store-ip must not restart the device"
+    assert server.read_config() == original
 
 
 def test_a_changed_contact_survives_the_restart_and_is_restored(server: PrintServer) -> None:

@@ -272,9 +272,10 @@ Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
 - **ARP-Trick hin und zurück (2026-10-26):** `arp assign-ip` auf eine freie Adresse und wieder
   auf die alte dauert je etwa 21 s samt Neustart; danach hält das Gerät nur die neue Adresse
   (ARP-Antwort und SNMP dort, die alte schweigt). Netzmaske, Gateway und DHCP bleiben.
-- **`SETIP`:** speichert die Adresse, die das Gerät als eigene hält. Über eine per ARP-Trick
-  geliehene Adresse ausgelöst, änderte es nichts (CONFIG behielt die eigene Adresse); auf einem
-  Gerät mit statischer IP ändert es nichts und startet nicht neu (2026-10-26).
+- **`SETIP`:** speichert die Adresse, unter der das Gerät gerade läuft, als statische IP: sofort,
+  ohne Neustart. Gemessen 2026-10-26: `IP_ADDR` auf eine andere Adresse geschrieben, aber nicht
+  angewendet, dann `SETIP` - danach stand wieder die laufende Adresse in CONFIG, sonst blieb
+  CONFIG unverändert. Eine per ARP-Trick geliehene Adresse übernimmt es nicht.
 - **LPD ohne Drucker:** Das Gerät nimmt den Auftrag an (Anschluss "Printing", "OCCUPIED BY:
   LPD"), bestätigt die Datendatei aber nicht, solange kein Drucker sie abnimmt; der Client
   wartet bis zu seinem Timeout. Ein Neustart räumt den Anschluss (2026-10-26).
