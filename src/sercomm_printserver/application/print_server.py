@@ -48,6 +48,7 @@ _RAW_LAST_PORT: Final = 65535
 #: manuals give the same three, as DSI sockets 4010/4020/4030.
 _RAW_LAST_PRINTER: Final = 3
 #: Parameters the device reads back masked with asterisks, so a read-back cannot verify them.
+#: Re-uploading the mask is safe: the device keeps the stored value when it receives it.
 _READ_BACK_MASKED: Final = frozenset({cat.mail_line(cat.MailField.PASSWORD)})
 #: How long a restart may take before waiting for it is given up.
 _RESTART_TIMEOUT: Final = 120.0

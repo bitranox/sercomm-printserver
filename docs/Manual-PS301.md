@@ -271,6 +271,13 @@ Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
   eine Änderung im Gerät - ist offen. `write_config` lehnt ein abweichendes Rücklesen mit
   `DeviceResponseError` ab und versucht es nicht selbst erneut, damit eine Änderung durch das
   Gerät sichtbar bleibt; der Aufrufer lädt erneut hoch.
+- **`MAIL_PAS`:** liest sich immer als zehn Sternchen, gleich was gespeichert ist. Ein Hochladen
+  mit `MAIL_PAS:**********` behält das gespeicherte Passwort; ein Passwort nur aus Sternchen
+  lässt sich daher nicht setzen. Gemessen 2026-10-26 mit einem POP3-Server auf dem Testrechner:
+  bekanntes Passwort gesetzt, dann die zurückgelesene CONFIG unverändert hochgeladen und neu
+  gestartet - das Gerät meldete sich weiter mit dem bekannten Passwort an. Die Mail-Einstellungen
+  (`MAIL_IP`, `MAIL_ACC`, `MAIL_PAS`) gelten ohne Neustart: die erste POP3-Anmeldung kam etwa
+  7 s nach dem Hochladen.
 - **IP-Wechsel:** Eine geänderte `IP_ADDR` gilt nach dem Neustart; das Gerät antwortet dann nur
   noch unter der neuen Adresse (Hin- und Rückweg gemessen).
 - **Pakete an jede IP:** Das Gerät beantwortet Pakete an jede IP-Adresse, die ein Rechner per
