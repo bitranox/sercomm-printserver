@@ -6,6 +6,13 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Changed
+
+- Requires `lib_log_rich>=8.0.1`. A key in the `[lib_log_rich]` section that lib_log_rich does
+  not know is now refused by name (`lib_log_rich.<key>: Extra inputs are not permitted`) and
+  logging starts with the defaults, as for any other refused setting. It used to be ignored, so a
+  misspelled setting silently kept its default.
+
 ## [0.2.0] 2026-10-26 18:46:01
 
 ### Changed

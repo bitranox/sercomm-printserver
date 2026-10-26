@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import lib_log_rich.runtime
 import pytest
+from lib_layered_config import Config
 from pydantic import ValidationError
 
 from sercomm_printserver import __init__conf__
-from sercomm_printserver.adapters.logging.setup import LoggingConfigModel
+from sercomm_printserver.adapters.logging.setup import (
+    InvalidLoggingConfigError,
+    LoggingConfigModel,
+    check_logging_config,
+)
 
 
 @pytest.mark.os_agnostic
@@ -24,10 +29,13 @@ def test_the_section_is_parsed_into_the_runtime_config_lib_log_rich_consumes() -
 
 
 @pytest.mark.os_agnostic
-def test_a_key_lib_log_rich_does_not_know_is_ignored() -> None:
-    parsed = LoggingConfigModel.model_validate({"service": "test", "custom_field": "value"})
+def test_a_key_lib_log_rich_does_not_know_is_refused_by_name() -> None:
+    config = Config({"lib_log_rich": {"service": "test", "console_levle": "debug"}}, {})
 
-    assert "custom_field" not in parsed.model_dump()
+    with pytest.raises(InvalidLoggingConfigError) as caught:
+        check_logging_config(config)
+
+    assert caught.value.problems == ["lib_log_rich.console_levle: Extra inputs are not permitted"]
 
 
 @pytest.mark.os_agnostic

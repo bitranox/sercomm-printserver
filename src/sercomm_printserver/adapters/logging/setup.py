@@ -45,8 +45,9 @@ if TYPE_CHECKING:
 class LoggingConfigModel(lib_log_rich.runtime.RuntimeConfig):
     """lib_log_rich's ``RuntimeConfig``, validated once, straight from the ``[lib_log_rich]`` section.
 
-    Every setting and every check is lib_log_rich's own; a key it does not know is ignored, as
-    ``RuntimeConfig`` ignores it. What this model adds is what the section needs on top:
+    Every setting and every check is lib_log_rich's own; a key it does not know is refused by
+    name, as ``RuntimeConfig`` refuses it, so a misspelled setting cannot silently fall back to
+    its default. What this model adds is what the section needs on top:
 
     * ``service`` defaults to the package name, also when the section gives it empty or null;
       ``environment`` defaults to ``prod``.

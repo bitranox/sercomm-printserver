@@ -825,6 +825,9 @@ wheels = [
 name = "httpcore2"
 version = "2.14.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
 dependencies = [
     { name = "h11" },
     { name = "truststore" },
@@ -835,20 +838,59 @@ wheels = [
 ]
 
 [[package]]
+name = "httpcore2"
+version = "2.15.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "(python_full_version >= '3.11' and sys_platform != 'emscripten') or (python_full_version == '3.11.*' and sys_platform == 'emscripten')",
+]
+dependencies = [
+    { name = "h11" },
+    { name = "truststore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/a9/11bc39967bb9dfaab0981ab4d49f519818acbee662a7e76d06813319c838/httpcore2-2.15.1.tar.gz", hash = "sha256:a94b6b3e6260e1a3f035915408d3dcd7dc8e844c2b544b642e227cf98a747af0", size = 69859, upload-time = "2026-10-19T20:14:23.824Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/9b/e2b556e26fbc67716ab1dfc18832eb6fe196d88363f7094cb1da3d7c0d3e/httpcore2-2.15.1-py3-none-any.whl", hash = "sha256:730f603058c260a3288378217b464713350c23e3b8fe8bba753701054032d98a", size = 85055, upload-time = "2026-10-19T20:14:21.363Z" },
+]
+
+[[package]]
 name = "httpx2"
 version = "2.14.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
 dependencies = [
     { name = "anyio", marker = "sys_platform != 'emscripten'" },
-    { name = "httpcore2", marker = "sys_platform != 'emscripten'" },
+    { name = "httpcore2", version = "2.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'emscripten'" },
+    { name = "idna" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e8/67/58353f1848b4ba568e1ec22ea1e0d8e039f0bca5fde7e2d1f07739fd83e7/httpx2-2.14.0.tar.gz", hash = "sha256:47ad61a3c40282cd8d0dc96311531f00f5bfc71a066c6fe3b36d8f63fb9e4f6e", size = 102036, upload-time = "2026-10-18T16:29:22.627Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/69/5a/469616aa8c2cbb0bb9dd67a3c18d07c01ab604cc0b236ee1c47d260c7f6e/httpx2-2.14.0-py3-none-any.whl", hash = "sha256:9d20c13a10bae1773a0be3b0f1e5beeb4bdd549bc3a2ba18efa32897c65403e4", size = 96901, upload-time = "2026-10-18T16:29:20.819Z" },
+]
+
+[[package]]
+name = "httpx2"
+version = "2.15.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "(python_full_version >= '3.11' and sys_platform != 'emscripten') or (python_full_version == '3.11.*' and sys_platform == 'emscripten')",
+]
+dependencies = [
+    { name = "anyio", marker = "sys_platform != 'emscripten'" },
+    { name = "httpcore2", version = "2.15.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'emscripten'" },
     { name = "httpx2-jsfetch", marker = "python_full_version >= '3.12' and sys_platform == 'emscripten'" },
     { name = "idna" },
     { name = "truststore", marker = "sys_platform != 'emscripten'" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/67/58353f1848b4ba568e1ec22ea1e0d8e039f0bca5fde7e2d1f07739fd83e7/httpx2-2.14.0.tar.gz", hash = "sha256:47ad61a3c40282cd8d0dc96311531f00f5bfc71a066c6fe3b36d8f63fb9e4f6e", size = 102036, upload-time = "2026-10-18T16:29:22.627Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/85/07978f4afd168d6b408fa75c1dc13e3010653a81e182aa1b6d89ab94d9c6/httpx2-2.15.1.tar.gz", hash = "sha256:ff75485308fbe441e75b1218546e4e78d884df41e1a9741c1f79335ed8fcfef7", size = 101673, upload-time = "2026-10-19T20:14:24.587Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/5a/469616aa8c2cbb0bb9dd67a3c18d07c01ab604cc0b236ee1c47d260c7f6e/httpx2-2.14.0-py3-none-any.whl", hash = "sha256:9d20c13a10bae1773a0be3b0f1e5beeb4bdd549bc3a2ba18efa32897c65403e4", size = 96901, upload-time = "2026-10-18T16:29:20.819Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/bf/56068f774620330c8330e4b4915fae889a5b2d4b52667b3b7c8f66c4a9ad/httpx2-2.15.1-py3-none-any.whl", hash = "sha256:75841cd83d16b417f7d6da8f2089ce8120806efdbf96af37d46c5129c49015be", size = 96411, upload-time = "2026-10-19T20:14:22.789Z" },
 ]
 
 [[package]]
@@ -1111,7 +1153,7 @@ wheels = [
 
 [[package]]
 name = "ipscout"
-version = "2.5.0"
+version = "2.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1119,9 +1161,9 @@ dependencies = [
     { name = "rich-click" },
     { name = "rtoml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/d2/0146e19b371da3a2f30a88a8873738a9d0ffbdddd76a50f8099d65b586e1/ipscout-2.5.0.tar.gz", hash = "sha256:19824f91a5e0f8c03e0aa1925a79f0fb101e0b536822c3838d9ea369a4de6372", size = 450751, upload-time = "2026-10-26T18:39:43.749Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/dd/97c3bc8c92f278d2edb51b257afa2ccbc326ffc8df6ef66e777b1d04e4fa/ipscout-2.5.1.tar.gz", hash = "sha256:67f1ba46506c0f554cdaaf10dae57df4ed6bf2a71392ac4dc479791df108ad0e", size = 453520, upload-time = "2026-10-26T20:41:29.739Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/bd/9563b96777be50c29257bb1dcccacb618b471140fc2242da6e2024990b05/ipscout-2.5.0-py3-none-any.whl", hash = "sha256:b255b57688d7d782caaab41504706bd32ffcc4500d227a421a746c6074e5baa6", size = 266668, upload-time = "2026-10-26T18:39:42.358Z" },
+    { url = "https://files.pythonhosted.org/packages/14/74/9c7c6e4b3855d0b485730338811d7522286b22418f1e8cc4bbd4b36e46db/ipscout-2.5.1-py3-none-any.whl", hash = "sha256:b944d58a08ef749eadf145e342b4feadadd3dc00b67b9c2718d4614e89911918", size = 267630, upload-time = "2026-10-26T20:41:28.28Z" },
 ]
 
 [[package]]
@@ -1218,7 +1260,7 @@ wheels = [
 
 [[package]]
 name = "lib-log-rich"
-version = "7.3.0"
+version = "8.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1228,9 +1270,9 @@ dependencies = [
     { name = "rich" },
     { name = "rich-click" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/b1/dd560ff35480101c6cdac8fb757426dddab3678192e9da6285d499d4a431/lib_log_rich-7.3.0.tar.gz", hash = "sha256:47885861409b545761ce562c8cd6ff2450952f7038b71ce66d8a135e2d1c56f6", size = 388552, upload-time = "2026-10-26T17:49:47.01Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/2c/13deb021e641707bbda1b097662a2f3116c2741de7a5a8c9a4fd1addad2c/lib_log_rich-8.0.1.tar.gz", hash = "sha256:d163d30fc54e3dd30a55e91f7e55b34ba5b2ee07911f90e25208a9af65b49cb1", size = 396010, upload-time = "2026-10-26T21:05:33.725Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/33/0ac86914a6b5fbbf2633f6c3f32785ffd5585b1a00a3f4b10939567e52cd/lib_log_rich-7.3.0-py3-none-any.whl", hash = "sha256:2469d09f91354d1e111eb8077335e67925ef49c395f1be11e26456b54461d700", size = 233587, upload-time = "2026-10-26T17:49:45.521Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/a5/83738c158d8fe837be7703b165b0e053f4249e8b27d5c5db0bd5724caeb9/lib_log_rich-8.0.1-py3-none-any.whl", hash = "sha256:77098cbacf9388a181e858267d790da918363689bc1e95de661178d3f1bb2e9e", size = 235534, upload-time = "2026-10-26T21:05:31.896Z" },
 ]
 
 [[package]]
@@ -2281,7 +2323,8 @@ dev = [
     { name = "click" },
     { name = "filelock", version = "4.2.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "hatchling" },
-    { name = "httpx2" },
+    { name = "httpx2", version = "2.14.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "httpx2", version = "2.15.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "hypothesis", version = "6.168.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "hypothesis", version = "6.170.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "import-linter" },
@@ -2313,11 +2356,11 @@ requires-dist = [
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.14.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.5" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
-    { name = "ipscout", specifier = ">=2.5.0" },
+    { name = "ipscout", specifier = ">=2.5.1" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
     { name = "lib-layered-config", specifier = ">=7.3.0" },
-    { name = "lib-log-rich", specifier = ">=7.3.0" },
+    { name = "lib-log-rich", specifier = ">=8.0.1" },
     { name = "orjson", specifier = ">=3.13.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.10.1" },
     { name = "pydantic", specifier = ">=2.14.1" },
