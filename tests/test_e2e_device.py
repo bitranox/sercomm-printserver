@@ -1,9 +1,11 @@
 """End-to-end tests against the real test print server described in ``test-device.json``.
 
 Run with ``SERCOMM_E2E=1 pytest -m device tests/test_e2e_device.py``. They run in file order,
-from harmless to riskier: reading, changing a harmless parameter, the password, and moving the
-device to a free address and back. Nothing here uploads firmware, restores factory defaults or
-connects to a RAW print port (a bare connect occupies it for minutes).
+from harmless to riskier: reading (through the library and the CLI), a RAW and an LPD job that
+the restart in their finally clause clears, a harmless parameter, the password, ``store-ip``, and
+moving the device to a free address and back - once through CONFIG and, as root (``sudo``), once
+through the ARP trick. Nothing here uploads firmware or restores factory defaults, and no test
+opens a RAW print port without sending data (a bare connect occupies it for minutes).
 
 A module fixture saves the device's CONFIG to ``.e2e/`` before anything runs and checks at the
 end that the device holds exactly that configuration again - except the gateway, which ends at
@@ -16,12 +18,13 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from ipaddress import IPv4Address
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import ipscout
 import pytest
@@ -29,12 +32,14 @@ from pydantic import BaseModel, ConfigDict, SecretStr
 
 from sercomm_printserver.adapters.discovery import FtpBannerScanner
 from sercomm_printserver.adapters.neighbors import IpscoutNeighborTable
+from sercomm_printserver.adapters.snmp import SnmpUptime
 from sercomm_printserver.adapters.tftp import TftpClient
 from sercomm_printserver.application import arp_trick
 from sercomm_printserver.composition import open_print_server
 from sercomm_printserver.domain.config_codec import find_line, parse_config, render_config, with_value
 from sercomm_printserver.domain.device_files import ReadableFile
-from sercomm_printserver.domain.endpoint import DeviceEndpoint
+from sercomm_printserver.domain.endpoint import DeviceEndpoint, PrintJob
+from sercomm_printserver.domain.errors import DeviceResponseError, DeviceUnavailableError
 from sercomm_printserver.domain.port_status import PortState, PortType
 
 if TYPE_CHECKING:
@@ -51,6 +56,9 @@ _RAW_SETTLE_SECONDS = 10.0
 #: The device refuses port 21 for about 0.1 s after each FTP session (docs/Manual-PS301.md);
 #: 0.5 s after one, a probe was greeted every time (measured 3 of 3).
 _FTP_SETTLE_SECONDS = 0.5
+#: A RESET restarts the device about 5 s after its session ends (docs/Manual-PS301.md); a
+#: trigger that does not restart it has shown no restart after this long.
+_NO_RESTART_SECONDS = 8.0
 
 
 class _E2eSettings(BaseModel):
@@ -124,6 +132,19 @@ def _free_address(device: _TestDevice) -> str:
     pytest.fail("no free address among e2e.free_ip_candidates")
 
 
+def _is_root() -> bool:
+    if sys.platform == "win32":
+        return False
+    return os.geteuid() == 0
+
+
+def _has_permanent_entry(address: str) -> bool:
+    return any(
+        entry.ip == address and entry.state is ipscout.NeighbourState.PERMANENT
+        for entry in ipscout.neighbours(family=ipscout.AddressFamily.IPV4)
+    )
+
+
 def _has_mac(address: str) -> bool:
     return any(
         neighbour.ip == address and neighbour.mac for neighbour in ipscout.neighbours(family=ipscout.AddressFamily.IPV4)
@@ -145,6 +166,29 @@ def _try_connect(host: str) -> socket.socket | None:
         return socket.create_connection((host, 21), timeout=10)
     except ConnectionRefusedError:
         return None
+
+
+def _uptime(host: str) -> float | None:
+    """The SNMP uptime at ``host``, or None. The agent answers only at the device's own address."""
+    try:
+        return SnmpUptime().uptime(DeviceEndpoint(host=host, timeout=3.0))
+    except (DeviceUnavailableError, DeviceResponseError):
+        return None
+
+
+def _cli(*arguments: str) -> tuple[int, dict[str, object]]:
+    """Run the installed CLI as a user would, and return its exit code and JSON envelope."""
+    done = subprocess.run(  # noqa: S603 - fixed interpreter and module, test-chosen arguments
+        [sys.executable, "-m", "sercomm_printserver", *arguments, "--json-bare"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+    )
+    envelope: dict[str, object] = json.loads(done.stdout)
+    return done.returncode, envelope
 
 
 def _login(host: str, user: str, password: str) -> str:
@@ -207,6 +251,34 @@ def test_raw_data_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer) 
     assert all(port.state is PortState.IDLE for port in server.status())
 
 
+def test_an_lpd_job_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer, device: _TestDevice) -> None:
+    # With no printer ready the device takes the job but holds back its acknowledgement of the
+    # data file (measured), so the submit times out; the port shows the job until the restart in
+    # the finally clause clears it. Printing it for real needs a printer (OPEN-WORK [15]).
+    routed_to = find_line(parse_config(server.read_config_text()), "L1_PROUT").value
+    if any(port.state is not PortState.IDLE for port in server.status()):
+        pytest.skip("a port is busy already; this test needs every port idle")
+    impatient = open_print_server(DeviceEndpoint(host=str(device.host), timeout=3.0))
+    busy: set[str] = set()
+    queue = ""
+    try:
+        try:
+            impatient.print_lpd("L1", PrintJob(data=b"sercomm-printserver E2E LPD probe\r\n", name="e2e-lpd"))
+        except DeviceResponseError as error:
+            if "data file" not in str(error):
+                raise
+        deadline = time.monotonic() + _RAW_SETTLE_SECONDS
+        while not busy and time.monotonic() < deadline:
+            busy = {port.port for port in server.status() if port.occupied_by == "LPD"}
+        queue = server.queue_state("L1")
+    finally:
+        server.reset(wait=True)
+
+    assert busy == {routed_to}
+    assert "OCCUPIED BY: LPD" in queue
+    assert all(port.state is PortState.IDLE for port in server.status())
+
+
 def test_the_configuration_renders_back_byte_for_byte(server: PrintServer) -> None:
     text = server.read_config_text()
 
@@ -236,13 +308,63 @@ def test_tftp_reads_the_same_configuration_as_ftp(server: PrintServer, device: _
     assert via_tftp.decode("ascii") == server.read_config_text()
 
 
+@pytest.mark.parametrize(
+    ("arguments", "field", "expected"),
+    [
+        (("firmware",), "firmware", "firmware"),
+        (("device-info",), "mac_address", "mac"),
+        (("device-info",), "server_name", "box_name"),
+        (("device-config", "get", "IP_ADDR"), "value", "host"),
+        (("status",), "host", "host"),
+        (("queue", "L1"), "queue", None),
+        (("device-config", "show"), "host", "host"),
+    ],
+    ids=[
+        "firmware",
+        "device-info-mac",
+        "device-info-name",
+        "device-config-get",
+        "status",
+        "queue",
+        "device-config-show",
+    ],
+)
+def test_the_cli_reads_the_device(
+    device: _TestDevice, arguments: tuple[str, ...], field: str, expected: str | None
+) -> None:
+    code, envelope = _cli(*arguments, "--host", str(device.host))
+
+    assert (code, envelope["ok"]) == (0, True), envelope
+    data = cast("dict[str, object]", envelope["data"])
+    want = "L1" if expected is None else str(getattr(device, expected))
+    assert str(data[field]) == want
+
+
+def test_the_cli_discovers_the_device_with_its_mac(device: _TestDevice) -> None:
+    time.sleep(_FTP_SETTLE_SECONDS)
+
+    code, envelope = _cli("discover", "--network", f"{device.host}/32")
+
+    assert (code, envelope["ok"]) == (0, True), envelope
+    data = envelope["data"]
+    assert isinstance(data, dict)
+    assert data["devices"] == [{"host": str(device.host), "mac_address": device.mac}]
+
+
+@pytest.mark.skipif(_is_root(), reason="as root the ARP request goes out, so nothing is refused")
+def test_arp_reach_without_root_is_refused_before_anything_is_written(device: _TestDevice) -> None:
+    # Unprivileged, this host can only read its ARP cache, which knows nothing about a free
+    # address - so nothing shows the address is free, and the CLI refuses with exit 13.
+    borrowed = _free_address(device)
+
+    code, envelope = _cli("arp", "reach", "--mac", device.mac, "--ip", borrowed)
+
+    assert code == 13, envelope
+    assert envelope["error"] == "UnverifiedAddressError"
+    assert not _has_permanent_entry(borrowed)
+
+
 # ---------------------------------------------------------------- changing and restoring
-
-
-def _is_root() -> bool:
-    if sys.platform == "win32":
-        return False
-    return os.geteuid() == 0
 
 
 @pytest.mark.skipif(not _is_root(), reason="writing a static ARP entry needs root; run this file with sudo")
@@ -261,12 +383,23 @@ def test_the_arp_trick_reaches_the_device_at_a_borrowed_address(device: _TestDev
 
     assert (result.device.default_name, str(result.borrowed_ip)) == (device.default_name, borrowed)
     assert str(result.device.ip_address) == str(device.host)
-    permanent = [
-        entry
-        for entry in ipscout.neighbours(family=ipscout.AddressFamily.IPV4)
-        if entry.ip == borrowed and entry.state is ipscout.NeighbourState.PERMANENT
-    ]
-    assert permanent == []
+    assert not _has_permanent_entry(borrowed)
+
+
+def test_store_ip_keeps_a_static_device_as_it_is(server: PrintServer, device: _TestDevice) -> None:
+    # SETIP stores the address the device holds as its own; measured, it ignores an address
+    # borrowed through the ARP trick. On a static device it therefore changes nothing, and it
+    # does not restart the device: the uptime keeps counting.
+    before_text, before_uptime = server.read_config_text(), _uptime(str(device.host))
+    assert before_uptime is not None
+
+    server.store_ip(confirm_name=device.box_name)
+    time.sleep(_NO_RESTART_SECONDS)
+
+    after_uptime = _uptime(str(device.host))
+    assert after_uptime is not None
+    assert after_uptime > before_uptime + _NO_RESTART_SECONDS / 2
+    assert server.read_config_text() == before_text
 
 
 def test_a_changed_contact_survives_the_restart_and_is_restored(server: PrintServer) -> None:
@@ -317,3 +450,41 @@ def test_the_device_moves_to_a_free_address_and_back(server: PrintServer, device
 
     assert returned.reachable_at == home
     assert server.read_config().tcp_ip.ip_address == device.host
+
+
+@pytest.mark.skipif(not _is_root(), reason="writing a static ARP entry needs root; run this file with sudo")
+def test_arp_assign_ip_moves_the_device_to_a_free_address_and_back(device: _TestDevice) -> None:
+    # Away and back through the ARP trick alone, as for a device whose address is unknown.
+    # The proof of each move is SNMP: the agent answers only at the device's own address, never
+    # at a borrowed one (measured), so an answer once the static entry is gone means the device
+    # really holds that address. A stale cache entry does not fool it.
+    home, away = str(device.host), _free_address(device)
+    table = IpscoutNeighborTable()
+    original = open_print_server(DeviceEndpoint(host=home)).read_config()
+    try:
+        arp_trick.assign_ip(
+            table,
+            open_print_server,
+            endpoint=DeviceEndpoint(host=away, login=device.box_name),
+            ip=IPv4Address(away),
+            mac=device.mac,
+        )
+        held_away = (_uptime(away) is not None, _uptime(home) is None)
+        stored_away = open_print_server(DeviceEndpoint(host=away)).read_config().tcp_ip
+        arp_trick.assign_ip(
+            table,
+            open_print_server,
+            endpoint=DeviceEndpoint(host=home, login=device.box_name),
+            ip=IPv4Address(home),
+            mac=device.mac,
+        )
+    finally:
+        if _uptime(home) is None and _uptime(away) is not None:
+            open_print_server(DeviceEndpoint(host=away)).write_config(with_value(original, "IP_ADDR", home))
+
+    assert held_away == (True, True), "after the move away the device answers SNMP at the new address only"
+    assert (stored_away.ip_address, stored_away.dhcp) == (IPv4Address(away), False)
+    assert (_uptime(home) is not None, _uptime(away) is None) == (True, True)
+    assert open_print_server(DeviceEndpoint(host=home)).read_config().tcp_ip == original.tcp_ip
+    assert not _has_permanent_entry(away)
+    assert not _has_permanent_entry(home)

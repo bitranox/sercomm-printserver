@@ -178,16 +178,42 @@ def test_a_reset_waits_until_the_uptime_falls_back() -> None:
     assert device.uptime_seconds < 5
 
 
-def test_without_snmp_a_reset_waits_for_ftp_to_go_away_and_return() -> None:
+def test_without_snmp_a_reset_cannot_be_confirmed() -> None:
+    # Watching FTP go down missed the restart on the real device in both measured attempts, so
+    # only the uptime counts as proof.
     device = _device()
     device.snmp_enabled = False
+    clock = _ManualClock()
+
+    with pytest.raises(
+        DeviceUnavailableError, match="gave no SNMP answer within 120 s, so its restart could not be confirmed"
+    ):
+        _server(device, clock=clock).reset()
+    assert device.actions == [DeviceAction.RESET]
+
+
+def test_a_restart_is_confirmed_by_snmp_that_answers_only_after_it() -> None:
+    # The ARP trick's case: no uptime is readable at the borrowed address before the restart.
+    device = _device()
+    device.snmp_silent_until_restart = True
+    device.restart_after_reads = 2
+    clock = _ManualClock()
+
+    _server(device, clock=clock).reset()
+
+    assert device.actions == [DeviceAction.RESET]
+    assert device.uptime_seconds < 5
+
+
+def test_a_restarted_device_is_waited_for_until_ftp_answers_again() -> None:
+    device = _device()
     device.ftp_down_after_reset = 2
     clock = _ManualClock()
 
     _server(device, clock=clock).reset()
 
-    assert clock.sleeps == [0.5]
     assert device.actions == [DeviceAction.RESET]
+    assert len(clock.sleeps) >= 2, "two failed FTP answers, each followed by a poll"
 
 
 def test_a_device_that_does_not_restart_is_reported_after_the_deadline() -> None:

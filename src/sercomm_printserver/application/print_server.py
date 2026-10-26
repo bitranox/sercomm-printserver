@@ -180,10 +180,10 @@ class PrintServer:
         if not apply:
             return ConfigWriteResult(changes=changes, written=True, applied=False, reachable_at=self._endpoint.host)
         target = self._endpoint_after(current, new)
-        before = self._uptime(self._endpoint)
+        triggered = self._clock()
         self._trigger(DeviceAction.RESET)
         if target is not None:
-            self._wait_for_restart(before, target)
+            self._wait_for_restart(triggered, target)
         return ConfigWriteResult(
             changes=changes, written=True, applied=True, reachable_at=None if target is None else target.host
         )
@@ -193,16 +193,17 @@ class PrintServer:
 
         The device restarts about 5 s after the triggering session ends and keeps answering
         until then, so a call right after the trigger would land in the restart. With ``wait``
-        this returns only once the device has restarted (its SNMP uptime fell back) and answers
-        FTP again.
+        this returns only once the device has restarted (its SNMP uptime is shorter than the
+        time since the trigger) and answers FTP again.
 
         Raises:
-            DeviceUnavailableError: ``wait`` and the device did not come back in time.
+            DeviceUnavailableError: ``wait`` and the device did not come back in time, or never
+                answered SNMP, so its restart could not be confirmed.
         """
-        before = self._uptime(self._endpoint)
+        triggered = self._clock()
         self._trigger(DeviceAction.RESET)
         if wait:
-            self._wait_for_restart(before, self._endpoint)
+            self._wait_for_restart(triggered, self._endpoint)
 
     def set_password(self, password: SecretStr) -> None:
         """Set the login password (at most 19 bytes; the device name stays the login).
@@ -282,15 +283,35 @@ class PrintServer:
         except (DeviceUnavailableError, DeviceResponseError):
             return None
 
-    def _wait_for_restart(self, before: float | None, endpoint: DeviceEndpoint) -> None:
+    def _wait_for_restart(self, triggered: float, endpoint: DeviceEndpoint) -> None:
+        """Wait until the device at ``endpoint`` has booted since ``triggered`` and answers FTP.
+
+        The proof is an uptime shorter than the time since the trigger, read at the address the
+        device answers on afterwards. No uptime from before the trigger is needed, which matters:
+        measured, the SNMP agent stays silent at a borrowed address (the ARP trick), and answers
+        there only once the restart made that address its own. Watching FTP go down instead
+        missed the restart in both measured attempts: the reboot is shorter than the FTP client's
+        2 s retry of a refused connect, and the manual says reachability cannot show it.
+        """
         deadline = self._clock() + _RESTART_TIMEOUT
-        if before is not None:
-            self._wait_until(
-                deadline, lambda: self._restarted_since(before, endpoint), host=endpoint.host, what="restart"
-            )
-        else:
-            # Without SNMP the restart shows only as FTP going away for a while.
-            self._wait_until(deadline, lambda: not self._answers_ftp(endpoint), host=endpoint.host, what="go down")
+        heard: list[float] = []
+
+        def restarted() -> bool:
+            uptime = self._uptime(endpoint)
+            if uptime is None:
+                return False
+            heard.append(uptime)
+            return uptime < self._clock() - triggered
+
+        try:
+            self._wait_until(deadline, restarted, host=endpoint.host, what="restart")
+        except DeviceUnavailableError as error:
+            if heard:
+                raise
+            raise DeviceUnavailableError(
+                f"{endpoint.host} gave no SNMP answer within {_RESTART_TIMEOUT:g} s, "
+                "so its restart could not be confirmed"
+            ) from error
         self._wait_until(deadline, lambda: self._answers_ftp(endpoint), host=endpoint.host, what="answer again")
 
     def _wait_until(self, deadline: float, condition: Callable[[], bool], *, host: str, what: str) -> None:
@@ -298,10 +319,6 @@ class PrintServer:
             if self._clock() > deadline:
                 raise DeviceUnavailableError(f"{host} did not {what} within {_RESTART_TIMEOUT:g} s")
             self._sleep(_POLL_INTERVAL)
-
-    def _restarted_since(self, before: float, endpoint: DeviceEndpoint) -> bool:
-        now = self._uptime(endpoint)
-        return now is not None and now < before
 
     def _answers_ftp(self, endpoint: DeviceEndpoint) -> bool:
         try:

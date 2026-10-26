@@ -93,6 +93,7 @@ class _LpdConnection:
 
     def __init__(self, endpoint: DeviceEndpoint) -> None:
         self._address = f"{endpoint.host}:{endpoint.lpd_port}"
+        self._timeout = endpoint.timeout
         self._answered = False
         try:
             self._sock = socket.create_connection((endpoint.host, endpoint.lpd_port), timeout=endpoint.timeout)
@@ -160,6 +161,15 @@ class _LpdConnection:
     def _recv(self, size: int, *, step: str) -> bytes:
         try:
             return self._sock.recv(size)
+        except TimeoutError as exc:
+            if not self._answered:
+                raise self._lost(step, f"{exc} while waiting for the reply") from exc
+            # Nothing broke: the connection is open and the device is just not answering. Measured
+            # on a PS301, it holds back the data file's acknowledgement while no printer takes it.
+            hint = "; the print server holds it back while no printer takes the data" if step == "data file" else ""
+            raise DeviceResponseError(
+                f"{self._address} sent no acknowledgement of the {step} within {self._timeout:g} s{hint}"
+            ) from exc
         except OSError as exc:
             raise self._lost(step, f"{exc} while waiting for the reply") from exc
 

@@ -179,6 +179,21 @@ def test_a_device_hanging_up_while_the_data_is_sent_is_a_response_error() -> Non
         assert server.finished.wait(_WAIT)
 
 
+def test_a_device_that_withholds_the_data_files_acknowledgement_says_so_after_the_timeout() -> None:
+    # A PS301 with no printer ready takes the whole job and keeps the connection open, but does
+    # not acknowledge the data file (measured): nothing broke, so the message must not say so.
+    with (
+        FakeLpdServer(withhold_data_ack=True) as server,
+        pytest.raises(
+            DeviceResponseError,
+            match=r"no acknowledgement of the data file within .* s; the print server holds it back while no",
+        ),
+    ):
+        _client().submit(_endpoint(server.port, timeout=_SHORT_TIMEOUT), "L1", _JOB)
+
+    assert bytes(server.received).endswith(_JOB.data + b"\x00")
+
+
 def test_a_device_that_stops_taking_the_data_times_out_while_it_is_sent() -> None:
     # Discriminates on Windows only: it accepts one send call of any size whole, so a job handed
     # to a single sendall "succeeds" there at once and the timeout comes from the acknowledgement

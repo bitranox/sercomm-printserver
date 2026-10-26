@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 _JOIN_TIMEOUT = 10.0
+#: The step number of the data file's acknowledgement (see the module docstring).
+_DATA_FILE_STEP = 2
 
 
 class _Recorder:
@@ -73,6 +75,8 @@ class FakeLpdServer:
             the file, so a client still sending it hits a reset.
         stall_before_data: Acknowledge the first file header, then stop reading and keep the
             connection open until the server is stopped, like a device whose buffer is full.
+        withhold_data_ack: Read the data file whole, then send no acknowledgement and keep the
+            connection open until the server is stopped, as a PS301 does with no printer ready.
 
     Attributes:
         received: Every byte the client sent, in order; complete once ``finished`` is set.
@@ -87,10 +91,12 @@ class FakeLpdServer:
         silent: bool = False,
         hang_up_before_data: bool = False,
         stall_before_data: bool = False,
+        withhold_data_ack: bool = False,
     ) -> None:
         self._acks = dict(acks or {})
         self._hang_up_before_data = hang_up_before_data
         self._stall_before_data = stall_before_data
+        self._withhold_data_ack = withhold_data_ack
         self._stop = threading.Event()
         self._queue_reply = queue_reply
         self._silent = silent
@@ -158,6 +164,9 @@ class FakeLpdServer:
             count = int(subcommand[1:].split(b" ", 1)[0])
             reader.read_exact(count + 1)
             step += 1
+            if self._withhold_data_ack and step == _DATA_FILE_STEP:
+                self._stop.wait(_JOIN_TIMEOUT)
+                return
             if not self._ack(conn, step):
                 return
 

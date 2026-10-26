@@ -255,7 +255,13 @@ Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
   Ein Neustart dauert etwa 5 s. Erreichbarkeit kann ihn daher nicht sicher anzeigen, die
   SNMP-Uptime schon.
 - **SNMP:** `sysUpTime` (1.3.6.1.2.1.1.3.0) ist mit der Community `public` lesbar und fällt
-  beim Neustart auf nahezu 0 zurück.
+  beim Neustart auf nahezu 0 zurück. Der SNMP-Agent antwortet nur unter der eigenen Adresse des
+  Geräts, nicht unter einer per ARP-Trick geliehenen (v1 und v2c, 2026-10-26); erst wenn ein
+  Neustart die geliehene Adresse zur eigenen gemacht hat, antwortet er dort.
+- **Neustart erkennen:** Ein Neustart zeigt sich nur an der Uptime. Auf das Wegbleiben von FTP
+  zu warten, verpasste ihn in beiden Messungen (2026-10-26): Das Gerät war nach dem Neustart
+  wieder da, bevor eine abgelehnte Verbindung länger als die 2 s Wiederholung des FTP-Clients
+  dauerte.
 - **Schreiben + Anwenden:** `put CONFIG`, Rücklesen, `get RESET`, bis das Gerät wieder
   antwortet: etwa 11 s.
 - **IP-Wechsel:** Eine geänderte `IP_ADDR` gilt nach dem Neustart; das Gerät antwortet dann nur
@@ -263,6 +269,15 @@ Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
 - **Pakete an jede IP:** Das Gerät beantwortet Pakete an jede IP-Adresse, die ein Rechner per
   ARP auf seine MAC abbildet (beobachtet über einen veralteten ARP-Eintrag nach dem
   IP-Wechsel). Darauf beruht der ARP-Trick.
+- **ARP-Trick hin und zurück (2026-10-26):** `arp assign-ip` auf eine freie Adresse und wieder
+  auf die alte dauert je etwa 21 s samt Neustart; danach hält das Gerät nur die neue Adresse
+  (ARP-Antwort und SNMP dort, die alte schweigt). Netzmaske, Gateway und DHCP bleiben.
+- **`SETIP`:** speichert die Adresse, die das Gerät als eigene hält. Über eine per ARP-Trick
+  geliehene Adresse ausgelöst, änderte es nichts (CONFIG behielt die eigene Adresse); auf einem
+  Gerät mit statischer IP ändert es nichts und startet nicht neu (2026-10-26).
+- **LPD ohne Drucker:** Das Gerät nimmt den Auftrag an (Anschluss "Printing", "OCCUPIED BY:
+  LPD"), bestätigt die Datendatei aber nicht, solange kein Drucker sie abnimmt; der Client
+  wartet bis zu seinem Timeout. Ein Neustart räumt den Anschluss (2026-10-26).
 - **LPD-Queue-Status** (`0x03`/`0x04` + Queue) antwortet mit dem Monitor-Block des Anschlusses,
   eingeleitet von `(LPD Server):`.
 - **Telnet:** Begrüßung `IAC WILL ECHO, IAC DO SGA, IAC WILL SGA`, dann `Welcome to Print

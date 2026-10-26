@@ -37,6 +37,16 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ### Fixed
 
+- `arp assign-ip` (and `arp_trick.assign_ip`) failed after the device had already moved: it
+  waited 120 s for FTP at the borrowed address to go away and reported "did not go down". The
+  SNMP agent does not answer at a borrowed address, so no uptime was read before the restart,
+  and the FTP fallback never sees the short reboot (measured twice on a PS301). A restart is now
+  recognised by an uptime, read at the address the device answers on afterwards, that is shorter
+  than the time since the trigger; no uptime from before the trigger is needed. The same wait
+  serves `reset` and configuration writes.
+- `reset` and configuration writes on a device that never answers SNMP now fail with
+  "gave no SNMP answer within 120 s, so its restart could not be confirmed" instead of watching
+  FTP, which could not confirm the restart either and failed with "did not go down".
 - The test suite no longer reads the app and host configuration layers of the machine it runs on.
   An autouse fixture points lib_layered_config's three app-root variables (`LIB_LAYERED_CONFIG_ETC`,
   `_MAC_APP_ROOT`, `_PROGRAMDATA`) at an empty directory under `tmp_path`, so a system-wide deploy

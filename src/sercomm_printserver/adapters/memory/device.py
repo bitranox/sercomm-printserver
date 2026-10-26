@@ -10,15 +10,20 @@ masked. Writes can be made to require the device-name login, as the vendor manua
 from __future__ import annotations
 
 import re
+import time
 from typing import TYPE_CHECKING, Final
 
 from ...domain.device_files import DeviceAction, ReadableFile, WritableFile
 from ...domain.errors import AuthenticationRequiredError, DeviceUnavailableError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ...domain.endpoint import DeviceEndpoint, PrintJob
 
 _MASKED_MAIL_PASSWORD: Final = re.compile(r"^(4102 MAIL_PAS:).*$", re.MULTILINE)
+#: How long the device has run when a fake starts: far longer than any wait in a test.
+_START_UPTIME: Final = 1000.0
 
 
 class FakeDevice:
@@ -31,6 +36,7 @@ class FakeDevice:
         firmware: The firmware version ``SYST`` reports.
         login_for_writes: When set, ``store`` and ``trigger`` answer 530 unless the endpoint logs
             in with this name and the device's password.
+        clock: The time the uptime is counted in; pass the waiter's clock where a test fakes it.
 
     Example:
         >>> from sercomm_printserver.domain.endpoint import DeviceEndpoint
@@ -47,6 +53,7 @@ class FakeDevice:
         monitor: str,
         firmware: str = "6022",
         login_for_writes: str | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
         self.psinf = psinf
@@ -59,11 +66,15 @@ class FakeDevice:
         self.lpd_jobs: list[tuple[str, PrintJob]] = []
         self.raw_sends: list[tuple[int, bytes]] = []
         self.store_rewrites: dict[str, str] = {}
-        self.uptime_seconds = 1000.0
+        self._clock = clock
+        self._booted_at = clock() - _START_UPTIME
         self.snmp_enabled = True
+        #: SNMP is silent until a restart, as the real agent is at an address borrowed by the ARP
+        #: trick: it answers there only once the restart made the address the device's own.
+        self.snmp_silent_until_restart = False
         #: Uptime reads after a RESET before the restart shows (the real device waits ~5 s).
         self.restart_after_reads = 0
-        #: FTP answers that fail after a RESET, as a restart looks without SNMP.
+        #: FTP answers that fail after a RESET, while the restarted device is not serving yet.
         self.ftp_down_after_reset = 0
         self.ignores_reset = False
         self._pending_restart: int | None = None
@@ -118,17 +129,24 @@ class FakeDevice:
     # UptimePort -----------------------------------------------------------
 
     def uptime(self, endpoint: DeviceEndpoint) -> float:
-        """Return the uptime; every read advances it by one second, a restart sets it back."""
+        """Return the seconds since the last boot; a restart shows after ``restart_after_reads`` reads."""
         self._check_reachable(endpoint)
         if not self.snmp_enabled:
             raise DeviceUnavailableError(f"{endpoint.host} does not answer SNMP")
         if self._pending_restart is not None:
             if self._pending_restart == 0:
-                self.uptime_seconds, self._pending_restart = 0.0, None
+                self._booted_at, self._pending_restart = self._clock(), None
+                self.snmp_silent_until_restart = False
             else:
                 self._pending_restart -= 1
-        self.uptime_seconds += 1.0
+        if self.snmp_silent_until_restart:
+            raise DeviceUnavailableError(f"{endpoint.host} gave no SNMP answer")
         return self.uptime_seconds
+
+    @property
+    def uptime_seconds(self) -> float:
+        """How long the device has run since its last boot."""
+        return self._clock() - self._booted_at
 
     # TelnetPort -----------------------------------------------------------
 
