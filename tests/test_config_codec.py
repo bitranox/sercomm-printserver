@@ -250,9 +250,15 @@ def test_a_value_cannot_smuggle_in_a_second_parameter(dump_text: str) -> None:
         with_value(parse_config(dump_text), "CONTACT", "x\n4000 IP_ADDR:192.0.2.66")
 
 
-def test_the_empty_box_name_is_refused(dump_text: str) -> None:
-    with pytest.raises(ConfigFormatError, match="must be 1 to 19"):
-        with_value(parse_config(dump_text), "BOX_NAME", "")
+def test_an_empty_box_name_is_the_factory_state_and_round_trips(dump_text: str) -> None:
+    # Measured 2026-10-27: a factory reset leaves "0001 BOX_NAME:" empty, so a reset device's
+    # CONFIG must parse, and writing it back must keep it empty.
+    text = dump_text.replace("0001 BOX_NAME:PS_EXAMPLE", "0001 BOX_NAME:")
+
+    config = parse_config(text)
+
+    assert config.box_name == ""
+    assert render_config(config) == text
 
 
 def test_a_logical_printer_the_family_has_no_line_for_cannot_be_rendered(dump_text: str) -> None:

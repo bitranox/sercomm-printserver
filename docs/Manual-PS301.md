@@ -188,6 +188,15 @@ Gerät per FTP statt TFTP an (TFTP lehnt `PASSRESET` ab und meldet nichts zurüc
 danach wieder. Gemessen: `arp reach` erreicht das Gerät über eine geliehene freie Adresse im
 eigenen Subnetz und liest PSINF; danach steht für die Adresse kein statischer Eintrag mehr.
 
+Gemessen 2026-10-27 mit `factory-reset` über eine geliehene Adresse (FW 6022): Das Gerät startet
+neu und antwortet innerhalb einer Minute wieder. Danach steht in CONFIG `IP_ADDR:0.0.0.0`,
+`DHCP_MODE:Enable` und ein leerer `BOX_NAME`. In PSINF ist `Server Name:` leer, und die
+AppleTalk-Drucker heißen `:LaserWriter`, `_P2:LaserWriter` und `_SP:LaserWriter`. Der FTP-Login
+ist dann der Default Name (`USER SC...`, leeres Passwort); der alte Name wird ebenfalls
+angenommen. Im Testnetz gab der DHCP-Server dem Gerät seine alte Adresse wieder, die Adresse
+allein zeigt also nicht, ob zurückgesetzt wurde. `arp assign-ip` auf die alte Adresse und das
+Hochladen der vorher gesicherten CONFIG stellen das Gerät vollständig wieder her.
+
 Weitere Wege: `get DEFAULTC` per FTP, BiAdmin "InitDevice > Restore Factory Default",
 PSCONFIG "Restore Default Configuration". Das TE-310-Handbuch erwähnt einen Reset-Taster;
 Perle dokumentiert für den IOPRINT+ keinen. Ob der PS301 einen hat, ist nicht geprüft.

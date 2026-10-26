@@ -177,13 +177,12 @@ def _split_report(text: str) -> tuple[tuple[InfoEntry, ...], tuple[InfoSection, 
     sections: list[InfoSection] = []
     title: str | None = None
     entries: list[InfoEntry] = []
-    for raw in text.replace("\x0c", "").splitlines():
-        if not raw.strip():
-            continue
+    lines = [raw for raw in text.replace("\x0c", "").splitlines() if raw.strip()]
+    for index, raw in enumerate(lines):
         entry = _entry(raw)
         if raw[:1].isspace() and title is not None:
             entries.append(entry)
-        elif not entry.value and raw.rstrip().endswith(":"):
+        elif not entry.value and _opens_section(lines, index):
             if title is not None:
                 sections.append(InfoSection(title=title, entries=tuple(entries)))
             title, entries = entry.key, []
@@ -194,9 +193,21 @@ def _split_report(text: str) -> tuple[tuple[InfoEntry, ...], tuple[InfoSection, 
     return tuple(general), tuple(sections)
 
 
+def _opens_section(lines: list[str], index: int) -> bool:
+    """Whether the empty-valued line at ``index`` is a section title: indented entries follow it.
+
+    ``Server Name:`` is empty after a factory reset and then reads exactly like ``Netware Info:``;
+    only what comes next tells them apart.
+    """
+    following = lines[index + 1] if index + 1 < len(lines) else ""
+    return following[:1].isspace()
+
+
 def _entry(raw: str) -> InfoEntry:
+    # The key may be empty: AppleTalk printers are named after the server name, which a factory
+    # reset clears, so the first one then reads ":LaserWriter" (measured, FW 6022).
     key, separator, value = raw.strip().partition(":")
-    if not separator or not key:
+    if not separator:
         raise DeviceResponseError(f"PSINF line is not 'Key: Value': {raw.strip()[:60]!r}")
     return InfoEntry(key=key.strip(), value=value.strip())
 

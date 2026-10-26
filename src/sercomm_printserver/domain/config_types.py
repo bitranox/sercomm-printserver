@@ -34,8 +34,9 @@ def _text_rule(max_length: int) -> AfterValidator:
 
 
 def _check_box_name(value: str) -> str:
-    if len(value) > _BOX_NAME_MAX or not _NO_SPACES.fullmatch(value):
-        raise ValueError(f"must be 1 to {_BOX_NAME_MAX} printable ASCII characters without spaces")
+    # Empty is the factory state (measured, FW 6022), so a reset device's CONFIG must parse.
+    if len(value) > _BOX_NAME_MAX or (value and not _NO_SPACES.fullmatch(value)):
+        raise ValueError(f"must be at most {_BOX_NAME_MAX} printable ASCII characters without spaces")
     return value
 
 
@@ -57,7 +58,7 @@ Text47 = Annotated[str, _text_rule(47)]
 Text235 = Annotated[str, _text_rule(235)]
 
 #: Device name: the manuals allow letters and digits, no spaces, at most 19 characters.
-#: The FTP login and the default AppleTalk names derive from it.
+#: The FTP login and the default AppleTalk names derive from it. Empty after a factory reset.
 BoxName = Annotated[str, AfterValidator(_check_box_name)]
 
 #: Control string sent before or after a job, written as hex digits (``<Esc>3`` is ``1B33``),

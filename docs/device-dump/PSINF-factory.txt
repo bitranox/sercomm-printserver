@@ -1,0 +1,29 @@
+Hardware ID: 024010XXXX
+Firmware Version: 6022
+Protocol ID: 003F
+Default Name: SC123456
+Server Name: 
+Netware Info:
+  Master File Server: 
+  NDS Tree Name: 
+  NDS Tree Context: 
+  Print Server Mode Status: 
+  Remote Printer Mode Status: N/A
+  Ethernet II Network Number: 00000000
+  802.2 Network Number: 00000000
+  802.3 Network Number: 00000000
+  SNAP Network Number: 00000000
+AppleTalk Info:
+  Printer Type: 
+  :LaserWriter
+  _P2:LaserWriter
+  _SP:LaserWriter
+TCP/IP Info:
+  IP Address: 192.0.2.52
+  Subnet Mask: 255.255.255.0
+  Gateway Address: 192.0.2.1
+  Email Server IP Address: 0.0.0.0
+  Printing Account Name:  N/A
+  Redirect Account Name:  N/A
+SMB Info:
+  Domain Name:

@@ -291,6 +291,25 @@ def test_a_configured_login_that_is_refused_is_not_retried_with_another_one() ->
     assert device.actions == []
 
 
+def _factory_reset_device() -> FakeDevice:
+    # Measured 2026-10-27: after a factory reset BOX_NAME and the PSINF server name are empty, and
+    # the FTP login the device takes is its default name.
+    return FakeDevice(
+        config=(_DUMPS / "CONFIG.txt").read_text(encoding="ascii").replace("BOX_NAME:PS_EXAMPLE", "BOX_NAME:"),
+        psinf=(_DUMPS / "PSINF-factory.txt").read_text(encoding="ascii"),
+        monitor="",
+        login_for_writes="SC123456",
+    )
+
+
+def test_a_reset_device_without_a_server_name_is_logged_in_with_its_default_name() -> None:
+    device = _factory_reset_device()
+
+    _server(device).reset()
+
+    assert device.actions == [DeviceAction.RESET]
+
+
 def test_a_password_is_stored_and_then_needed_for_the_next_write() -> None:
     device = _device(login_for_writes="PS_EXAMPLE")
     server = _server(device)
@@ -356,6 +375,17 @@ def test_a_dangerous_action_without_the_right_name_does_nothing(
 
     with pytest.raises(ConfirmationRequiredError, match="PS_EXAMPLE or SC123456"):
         call(_server(device), name)
+    assert action not in device.actions
+
+
+@pytest.mark.parametrize(("call", "action"), _CONFIRMED_ACTIONS)
+def test_an_empty_confirmation_does_not_match_the_empty_name_of_a_reset_device(
+    call: Callable[[PrintServer, str], None], action: DeviceAction
+) -> None:
+    device = _factory_reset_device()
+
+    with pytest.raises(ConfirmationRequiredError, match="SC123456"):
+        call(_server(device), "")
     assert action not in device.actions
 
 

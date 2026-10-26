@@ -13,6 +13,20 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   logging starts with the defaults, as for any other refused setting. It used to be ignored, so a
   misspelled setting silently kept its default.
 
+### Fixed
+
+- A device after a factory reset can be reached, read and written again (measured on a PS301,
+  FW 6022). Its CONFIG holds an empty `BOX_NAME`, which was refused as out of range, so reading
+  or writing its configuration failed; an empty name now parses and round-trips, and a non-empty
+  one is still at most 19 characters without spaces. Its PSINF has an empty `Server Name:` line,
+  which was taken for a section title, and an AppleTalk line `:LaserWriter`, which was refused
+  as not `Key: Value`, so the ARP trick could not identify a reset device.
+- A write the device refuses for want of a login, with no login configured, is retried with
+  the default name (`SCxxxxxx`) when the server name is empty; it was retried with the empty
+  name.
+- An empty confirmation name no longer counts as repeating the empty server name of a reset
+  device, so `factory-default`, `password clear` and `store-ip` refuse it there as everywhere.
+
 ## [0.2.0] 2026-10-26 18:46:01
 
 ### Changed

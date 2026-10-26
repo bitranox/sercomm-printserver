@@ -47,6 +47,21 @@ def test_psinf_lifts_identity_and_address_and_keeps_every_section() -> None:
     ]
 
 
+def test_psinf_after_a_factory_reset_names_its_appletalk_printers_after_the_empty_server_name() -> None:
+    # Measured 2026-10-27: after a factory reset the server name is empty, so the first AppleTalk
+    # printer line reads ":LaserWriter". The ARP trick must still identify the device then.
+    info = parse_psinf((_DUMPS / "PSINF-factory.txt").read_text(encoding="ascii"))
+
+    assert (info.default_name, info.server_name) == ("SC123456", "")
+    appletalk = next(section for section in info.sections if section.title == "AppleTalk Info")
+    assert [(entry.key, entry.value) for entry in appletalk.entries] == [
+        ("Printer Type", ""),
+        ("", "LaserWriter"),
+        ("_P2", "LaserWriter"),
+        ("_SP", "LaserWriter"),
+    ]
+
+
 def test_psinf_as_the_device_sends_it_with_crlf_and_form_feed_parses_the_same() -> None:
     text = (_DUMPS / "PSINF.txt").read_text(encoding="ascii")
     wire = text.replace("\n", "\r\n") + "\x0c\r"

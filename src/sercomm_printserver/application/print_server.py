@@ -337,7 +337,8 @@ class PrintServer:
 
     def _confirm(self, confirm_name: str, *, action: str) -> None:
         info = self.info()
-        names = {info.server_name.upper(), info.default_name.upper()}
+        # A reset device's server name is empty, and "" must not count as repeating it.
+        names = {name.upper() for name in (info.server_name, info.default_name) if name}
         if confirm_name.strip().upper() not in names:
             raise ConfirmationRequiredError(
                 f"{action} needs the device's name as confirmation ({info.server_name} or {info.default_name})"
@@ -349,9 +350,10 @@ class PrintServer:
         except AuthenticationRequiredError:
             if self._endpoint.login:
                 raise
-        # PSINF is readable without a login on this family; its server name is the login.
+        # PSINF is readable without a login on this family; its server name is the login, and after
+        # a factory reset, which empties the server name, the default name is (measured, FW 6022).
         device = parse_psinf(self._ports.ftp.retrieve(self._endpoint, ReadableFile.PSINF).decode("ascii", "replace"))
-        return call(self._endpoint.model_copy(update={"login": device.server_name}))
+        return call(self._endpoint.model_copy(update={"login": device.server_name or device.default_name}))
 
 
 def _describe_changes(changes: list[ConfigChange]) -> str:

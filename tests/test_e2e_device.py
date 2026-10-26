@@ -3,10 +3,11 @@
 Run with ``SERCOMM_E2E=1 pytest -m device tests/test_e2e_device.py``. They run in file order,
 from harmless to riskier: reading (through the library and the CLI), a RAW and an LPD job that
 the restart in their finally clause clears, ``store-ip`` over a written but unapplied address, a
-harmless parameter, the password, and
+harmless parameter, the password,
 moving the device to a free address and back - once through CONFIG and, as root (``sudo``), once
-through the ARP trick. Nothing here uploads firmware or restores factory defaults, and no test
-opens a RAW print port without sending data (a bare connect occupies it for minutes).
+through the ARP trick - and last, as root, a factory reset by MAC that the ARP trick and the saved
+CONFIG undo. Nothing here uploads firmware, and no test opens a RAW print port without sending
+data (a bare connect occupies it for minutes).
 
 A module fixture saves the device's CONFIG to ``.e2e/`` before anything runs and checks at the
 end that the device holds exactly that configuration again - except the gateway, which ends at
@@ -60,6 +61,9 @@ _FTP_SETTLE_SECONDS = 0.5
 #: A RESET restarts the device about 5 s after its session ends (docs/Manual-PS301.md); a
 #: trigger that does not restart it has shown no restart after this long.
 _NO_RESTART_SECONDS = 8.0
+#: How long the device may take to answer over a borrowed address after a factory reset; a
+#: plain restart takes about 5 s (docs/Manual-PS301.md), the reset adds its address search.
+_FACTORY_RESET_TIMEOUT = 120.0
 
 
 class _E2eSettings(BaseModel):
@@ -497,4 +501,86 @@ def test_arp_assign_ip_moves_the_device_to_a_free_address_and_back(device: _Test
     assert (_uptime(home) is not None, _uptime(away) is None) == (True, True)
     assert open_print_server(DeviceEndpoint(host=home)).read_config().tcp_ip == original.tcp_ip
     assert not _has_permanent_entry(away)
+    assert not _has_permanent_entry(home)
+
+
+def _reach_once_up(device: _TestDevice, borrowed: str, *, login: str) -> arp_trick.ArpResult:
+    """Read PSINF over ``borrowed`` once the device answers again after its restart."""
+    deadline = time.monotonic() + _FACTORY_RESET_TIMEOUT
+    while (result := _try_reach(device, borrowed, login=login)) is None:
+        if time.monotonic() > deadline:
+            pytest.fail(f"the device did not answer over {borrowed} within {_FACTORY_RESET_TIMEOUT:g} s")
+        time.sleep(2.0)
+    return result
+
+
+def _try_reach(device: _TestDevice, borrowed: str, *, login: str) -> arp_trick.ArpResult | None:
+    try:
+        return arp_trick.reach(
+            IpscoutNeighborTable(),
+            open_print_server,
+            endpoint=DeviceEndpoint(host=borrowed, login=login),
+            ip=IPv4Address(borrowed),
+            mac=device.mac,
+        )
+    except (DeviceUnavailableError, DeviceResponseError):
+        return None
+
+
+def _bring_home(device: _TestDevice, original_text: str) -> None:
+    """Give the device behind the MAC its home address again, then its saved configuration."""
+    home = str(device.host)
+    arp_trick.assign_ip(
+        IpscoutNeighborTable(),
+        open_print_server,
+        endpoint=DeviceEndpoint(host=home, login=device.default_name),
+        ip=device.host,
+        mac=device.mac,
+    )
+    _restore_config(home, original_text)
+
+
+def _restore_config(home: str, original_text: str) -> None:
+    """Upload the saved CONFIG unless the device at ``home`` holds it; log in as it is named now."""
+    current = open_print_server(DeviceEndpoint(host=home)).read_config()
+    if current != parse_config(original_text):
+        open_print_server(DeviceEndpoint(host=home, login=current.box_name)).write_config(parse_config(original_text))
+
+
+@pytest.mark.skipif(not _is_root(), reason="writing a static ARP entry needs root; run this file with sudo")
+def test_a_factory_reset_by_mac_is_undone_with_the_arp_trick(device: _TestDevice) -> None:
+    # Last, because it is the riskiest: after a factory reset the device stores 0.0.0.0 with DHCP
+    # on, so it answers wherever a lease puts it, and only by its default name. The ARP trick
+    # reaches it at a known address either way. It is brought back as a user would: assign-ip to
+    # its old address, then the saved CONFIG.
+    home = str(device.host)
+    original_text = open_print_server(DeviceEndpoint(host=home)).read_config_text()
+    borrowed = _free_address(device)
+    try:
+        arp_trick.factory_reset(
+            IpscoutNeighborTable(),
+            open_print_server,
+            endpoint=DeviceEndpoint(host=borrowed, login=device.box_name),
+            ip=IPv4Address(borrowed),
+            mac=device.mac,
+            confirm_name=device.default_name,
+        )
+        after_reset = _reach_once_up(device, borrowed, login=device.default_name)
+        _bring_home(device, original_text)
+    finally:
+        # Recovery for a step that failed: off its address the device is brought home first, at
+        # home it only needs the saved CONFIG.
+        if _banner(home) is None:
+            _reach_once_up(device, borrowed, login=device.default_name)
+            _bring_home(device, original_text)
+        else:
+            _restore_config(home, original_text)
+
+    # Not the address: the test network's DHCP server leases the reset device its old address
+    # again (measured 2026-10-27). The emptied name is what only a reset produces.
+    assert after_reset.device.server_name == "", "the reset must clear the device name"
+    assert after_reset.device.default_name == device.default_name
+    assert open_print_server(DeviceEndpoint(host=home)).read_config() == parse_config(original_text)
+    assert _uptime(home) is not None
+    assert not _has_permanent_entry(borrowed)
     assert not _has_permanent_entry(home)
