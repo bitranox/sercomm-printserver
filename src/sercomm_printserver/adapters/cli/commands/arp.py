@@ -175,7 +175,10 @@ def cli_arp_factory_reset(
     as_json: bool,
     as_json_bare: bool,
 ) -> None:
-    """Restore factory settings of the device behind --mac. Its IP becomes 0.0.0.0 afterwards."""
+    """Restore factory settings of the device behind --mac: stored IP 0.0.0.0 with DHCP on.
+
+    Returns once the reset is triggered; bring the device back with arp assign-ip.
+    """
 
     def work(endpoint: DeviceEndpoint, services: AppServices, settings: DeviceSettings) -> ArpResult:
         if not yes:

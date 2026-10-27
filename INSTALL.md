@@ -105,7 +105,7 @@ pipx install "git+https://github.com/bitranox/sercomm-printserver"
 pipx install .
 pipx upgrade sercomm_printserver
 # install from Git tag
-pipx install "git+https://github.com/bitranox/sercomm-printserver@v1.1.0"
+pipx install "git+https://github.com/bitranox/sercomm-printserver@v0.2.0"   # any release tag
 ```
 
 ## From Build Artifacts

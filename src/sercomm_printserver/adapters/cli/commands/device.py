@@ -241,7 +241,10 @@ def cli_factory_default(
     as_json: bool,
     as_json_bare: bool,
 ) -> None:
-    """Restore factory settings. The device then has IP 0.0.0.0 and leaves the network."""
+    """Restore factory settings: stored IP 0.0.0.0 with DHCP on, an empty name, no password.
+
+    The device restarts and asks DHCP for an address; without a DHCP server, reach it with arp.
+    """
 
     def work(server: PrintServer) -> ActionReport:
         _require_yes(yes, what=CommandName.FACTORY_DEFAULT)

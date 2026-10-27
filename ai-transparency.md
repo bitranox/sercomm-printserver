@@ -19,11 +19,12 @@ scripts, without those traps.
 The decisions were the human's:
 
 - the scope: manage, print (LPD and RAW) and find devices, and a Python library as well as a CLI;
-- one library for both model lines, with two parallel ports plus one serial, or one parallel;
+- one library for the whole model family, from one parallel port up to three, some with a serial
+  or USB port;
 - a fully typed model of the device's CONFIG file, so a change is validated before it is sent
   and shown as a diff first;
 - tiered confirmation: `--yes` for anything that changes the device, plus the device's own name
-  for anything that can take it off the network or open it up;
+  for `factory-default`, `password clear`, `store-ip` and `arp factory-reset`;
 - device search by the FTP greeting alone, with no login, after a production unit on the same
   network stopped answering when it was probed harder;
 - the vendor's "ARP trick" for a device whose address is unknown, done natively through
@@ -48,8 +49,8 @@ None of the decisions, and none of the accountability, were the AI's.
 
 The gate is `make test`, and CI runs the same checks: Ruff (lint and format), Pyright in strict
 mode, the import-linter layer contracts, Bandit, pip-audit, and Pytest with coverage, including
-the doctests in the source modules. CI runs them on Linux, macOS and Windows for every Python
-version from 3.10 to 3.15. The protocol adapters are tested against small local servers that
+the doctests in the source modules. CI runs them on Linux and Windows for every Python version
+from 3.10 to 3.15, and on macOS for the newest. The protocol adapters are tested against small local servers that
 speak the device's dialect. The end-to-end suite (`tests/test_e2e_device.py`) runs only on
 request, against a real device, and saves the device's configuration before it changes anything.
 

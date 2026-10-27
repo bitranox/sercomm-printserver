@@ -53,11 +53,11 @@ Aus den CONFIG-Tabellen der Firmware-Images und den Unix-Handbüchern:
 - Schlüssel nur bei Mehrport-Modellen: LPT2MODE/LPT3MODE, NR_NAME2.., AP_TYPE2..,
   AP_PCOMM2.. (beim EPSX3 trägt Port 3 die Endung 4).
 - Schlüssel nur bei manchen Firmware-Ständen:
-  - P1_NAME/P2_NAME (0040-0042) und Ln_NAME: nur PS110 v3 6028.
-  - P1_STROBE, SMBDESC: nur TE100-P1P 6034 und TEW-P1U1P 6035.
+  - P1_NAME/P2_NAME (0040, 0041) und Ln_NAME: nur in den PS110-Images (6017, 6025-6028).
+  - P1_STROBE: nur TE100-P1P 6034; SMBDESC: nur TE100-P1P 6034 und TEW-P1U1P 6035.
   - serielle Schlüssel (BAUDRATE..HANDSHAK): PPSX1, EPSX3, PS110 und dieses Gerät, nicht in
     den TRENDnet-603x-Images.
-  - MAIL_*: fehlen bei PS110 6028.
+  - MAIL_*: fehlen bei PS110 6025, 6026 und 6028 (6017 hat sie).
   - WINS_IP: in allen Images, fehlt in der Handbuch-Tabelle.
   - SSID/WEP: nur TEW-P1U1P.
   - Firmware über 6100 nutzt laut Unix-Handbuch größere Feldlängen.
@@ -69,7 +69,8 @@ Aus den CONFIG-Tabellen der Firmware-Images und den Unix-Handbüchern:
   BYTES SERVICED / OCCUPIED BY"; FTP-Banner "220 Print Server Ready.", SYST/HELP liefert
   "215 Print Server FW nnnn". Damit lässt sich die Firmware-Version ohne Login abfragen.
 - Werkseinstellungen (Unix-Handbuch): IP 0.0.0.0, Ln_PROUT P1, CHGLF No, TCP_INT 2,
-  TCP_CNT 254, SNMP-Community "public".
+  TCP_CNT 254, SNMP-Community "public". Gemessen auf diesem Gerät (FW 6022) nach einem Reset
+  außerdem: `BOX_NAME` leer und `DHCP_MODE:Enable`.
 
 ## Dieses Gerät (ausgelesen am 2026-10-23)
 
@@ -107,8 +108,8 @@ Anschlüsse: P1 und P2 parallel, SP seriell (9600 8N1, Handshake BOTH).
 
 Die LPD-Queue `lp` landet ebenfalls auf P1.
 
-Offene Ports: 21 (FTP), 23 (Telnet), 69/udp (TFTP), 515 (LPD), 9100-9102 und
-4010/4020/4030 (RAW / Direct Socket). Geschlossen: 80, 139, 443, 631, 9103.
+Offene Ports: 21 (FTP), 23 (Telnet), 69/udp (TFTP), 161/udp (SNMP, Community `public`),
+515 (LPD), 9100-9102 und 4010/4020/4030 (RAW / Direct Socket). Geschlossen: 80, 139, 443, 631, 9103.
 
 Die RAW-Ports gehören zu den logischen Druckern, nicht zu den Anschlüssen: 9100 und 4010
 -> L1, 9101 und 4020 -> L2, 9102 und 4030 -> L3. Die Daten gehen an den Anschluss, auf
@@ -133,17 +134,19 @@ gesetzt ist. Beobachtet: `LIST` und `RETR CONFIG` funktionierten hier auch ganz 
 
 Virtuelle Dateien:
 
-| Datei     | Wirkung von get                         | put              |
-|-----------|-----------------------------------------|------------------|
-| CONFIG    | Konfiguration herunterladen             | Konfig schreiben |
-| PSINF     | Geräteinfo herunterladen                | -                |
-| RESET     | Neustart (beendet die FTP-Verbindung)   | -                |
-| DEFAULTC  | WERKSEINSTELLUNGEN (IP danach 0.0.0.0!) | -                |
-| PASSRESET | Passwort löschen                        | -                |
-| SETIP     | aktuelle IP als statisch speichern      | -                |
+| Datei     | Wirkung von get                       | put              |
+|-----------|---------------------------------------|------------------|
+| CONFIG    | Konfiguration herunterladen           | Konfig schreiben |
+| PSINF     | Geräteinfo herunterladen              | -                |
+| RESET     | Neustart (beendet die FTP-Verbindung) | -                |
+| DEFAULTC  | WERKSEINSTELLUNGEN (siehe unten)      | -                |
+| PASSRESET | Passwort löschen                      | -                |
+| SETIP     | aktuelle IP als statisch speichern    | -                |
 
 Achtung: `get` auf RESET, DEFAULTC, PASSRESET oder SETIP liest nichts, sondern löst die
-Aktion aus. Nach `DEFAULTC` hat das Gerät die IP 0.0.0.0 und sucht per DHCP, BOOTP, RARP.
+Aktion aus. Nach `DEFAULTC` steht in CONFIG die IP 0.0.0.0 mit `DHCP_MODE:Enable`; das Gerät
+holt sich eine Adresse per DHCP (laut Handbuch auch BOOTP, RARP), im Test seine alte (siehe
+"Werkseinstellungen, wenn IP oder Passwort unbekannt sind").
 
 Weitere Befehle:
 
@@ -180,11 +183,13 @@ Für Firmware über 5000 (dieses Gerät: 6022), nach TE-310-Handbuch und Perle-K
    Name, hier `00:c0:02:12:34:56`).
 2. `tftp <ip> GET DEFAULTC`
 3. Etwa 5 Sekunden warten, bis die rote LED blinkt. Danach ist alles zurückgesetzt, auch die
-   IP (0.0.0.0, das Gerät fragt dann DHCP, BOOTP, RARP).
+   gespeicherte IP (0.0.0.0 mit DHCP an; das Gerät fragt dann DHCP, laut Handbuch auch BOOTP,
+   RARP).
 
 Mit diesem Werkzeug: `sercomm-printserver arp reach | assign-ip | factory-reset --mac MAC --ip
 FREIE_IP` (als root bzw. Administrator). Es setzt den statischen ARP-Eintrag selbst, spricht das
-Gerät per FTP statt TFTP an (TFTP lehnt `PASSRESET` ab und meldet nichts zurück, siehe oben) und entfernt den Eintrag
+Gerät per FTP statt TFTP an (TFTP lehnt `PASSRESET` mit Fehler 4 ab, und die Aktionen, die es
+annimmt, beantwortet es nur mit einem leeren DATA-Block, siehe oben) und entfernt den Eintrag
 danach wieder. Gemessen: `arp reach` erreicht das Gerät über eine geliehene freie Adresse im
 eigenen Subnetz und liest PSINF; danach steht für die Adresse kein statischer Eintrag mehr.
 
@@ -221,19 +226,19 @@ hilft nur `get PASSRESET` (gemessen).
 Das vollständige Format steht in `oem-manuals/trendnet/UG_TE-350_TE-360_NetWare_ConfigFormat.pdf`,
 Anhang B.
 
-| Zeile     | Schlüssel            | Bedeutung                                      |
-|-----------|----------------------|------------------------------------------------|
-| 0001      | BOX_NAME             | Gerätename, max. 19 Zeichen, keine Leerzeichen |
-| 0011-0014 | *_P                  | Protokolle IPX/SPX, TCP/IP, AppleTalk, NetBEUI |
-| 0030-0034 | BAUDRATE...          | serielle Schnittstelle                         |
-| 0100-0243 | Ln_PROUT             | Anschluss je logischem Drucker (P1, P2, SP)    |
-|           | Ln_PREST/POSTR       | Steuerstring vor/nach Job (Hex, max. 15)       |
-|           | Ln_CHGLF             | LF in CR+LF wandeln                            |
-| 4000-4002 | IP_ADDR/GATEWAY/MASK | IP-Konfiguration                               |
-| 4010/4011 | TCP_INT/TCP_CNT      | TCP-Wiederholintervall / -anzahl               |
-| 4020      | DHCP_MODE            | DHCP ein/aus                                   |
-| 4100-4109 | MAIL_*               | E-Mail-Druck (POP3), hier ungenutzt            |
-| 6000-6144 | CONTACT, M*, T*      | SNMP-Manager und Traps (Community "public")    |
+| Zeile     | Schlüssel            | Bedeutung                                                                    |
+|-----------|----------------------|------------------------------------------------------------------------------|
+| 0001      | BOX_NAME             | Gerätename, max. 19 Zeichen, keine Leerzeichen; leer nach Werkseinstellungen |
+| 0011-0014 | *_P                  | Protokolle IPX/SPX, TCP/IP, AppleTalk, NetBEUI                               |
+| 0030-0034 | BAUDRATE...          | serielle Schnittstelle                                                       |
+| 0100-0243 | Ln_PROUT             | Anschluss je logischem Drucker (P1, P2, SP)                                  |
+|           | Ln_PREST/POSTR       | Steuerstring vor/nach Job (Hex, max. 15)                                     |
+|           | Ln_CHGLF             | LF in CR+LF wandeln                                                          |
+| 4000-4002 | IP_ADDR/GATEWAY/MASK | IP-Konfiguration                                                             |
+| 4010/4011 | TCP_INT/TCP_CNT      | TCP-Wiederholintervall / -anzahl                                             |
+| 4020      | DHCP_MODE            | DHCP ein/aus                                                                 |
+| 4100-4109 | MAIL_*               | E-Mail-Druck (POP3), hier ungenutzt                                          |
+| 6000-6144 | CONTACT, M*, T*      | SNMP-Manager und Traps (Community "public")                                  |
 
 ## Drucken
 
@@ -294,7 +299,9 @@ Gemessen mit `sercomm-printserver` und Rohsitzungen, 2026-10-23:
   IP-Wechsel). Darauf beruht der ARP-Trick.
 - **ARP-Trick hin und zurück (2026-10-26):** `arp assign-ip` auf eine freie Adresse und wieder
   auf die alte dauert je etwa 21 s samt Neustart; danach hält das Gerät nur die neue Adresse
-  (ARP-Antwort und SNMP dort, die alte schweigt). Netzmaske, Gateway und DHCP bleiben.
+  (ARP-Antwort und SNMP dort, die alte schweigt). `assign-ip` schaltet DHCP immer ab; Netzmaske
+  und Gateway bleiben, solange `--netmask`/`--gateway` nichts anderes angeben. Firmware ohne
+  `DHCP_MODE`-Zeile (PS301 FW 6A10) verweigert das Werkzeug `assign-ip` (Exit 22).
 - **`SETIP`:** speichert die Adresse, unter der das Gerät gerade läuft, als statische IP: sofort,
   ohne Neustart. Gemessen 2026-10-26: `IP_ADDR` auf eine andere Adresse geschrieben, aber nicht
   angewendet, dann `SETIP` - danach stand wieder die laufende Adresse in CONFIG, sonst blieb
@@ -332,7 +339,8 @@ Ein zweiter PS301 mit **Firmware 6A10** im selben Netz zeigte:
 
 ## Dateien in diesem Verzeichnis
 
-- `device-dump/`: CONFIG, PSINF und Telnet-Monitor dieses Geräts.
+- `device-dump/`: CONFIG, PSINF und Telnet-Monitor dieses Geräts, `PSINF-factory.txt` (PSINF
+  nach Werkseinstellungen) und `fw6a10/CONFIG.txt` (CONFIG eines zweiten PS301 mit FW 6A10).
 
 Die Herstellerhandbücher und Firmware-Images unter `oem-manuals/` sind urheberrechtlich
 geschützt und liegen deshalb nur lokal, nicht im Repository. Bezugsquellen stehen unter

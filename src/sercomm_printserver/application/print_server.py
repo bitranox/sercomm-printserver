@@ -235,10 +235,12 @@ class PrintServer:
         self._trigger(DeviceAction.STORE_IP)
 
     def factory_default(self, *, confirm_name: str) -> None:
-        """Restore factory settings: IP 0.0.0.0, no password. Needs the device's name.
+        """Restore factory settings: no password, an empty name, IP 0.0.0.0 with DHCP on. Needs the device's name.
 
-        Afterwards the device looks for an address by DHCP, BOOTP and RARP and is no longer
-        reachable at its old address.
+        Returns once the reset is triggered, without waiting. The device restarts and takes an
+        address by DHCP (the vendor manuals add BOOTP and RARP), which may be its old one (measured
+        on FW 6022); without a DHCP server it has no usable address and is reached with the ARP
+        trick. Its login is then its default name.
         """
         self._confirm(confirm_name, action="restoring factory defaults")
         self._trigger(DeviceAction.FACTORY_DEFAULT)

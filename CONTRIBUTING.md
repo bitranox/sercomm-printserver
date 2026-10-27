@@ -18,7 +18,9 @@ Thanks for helping improve **sercomm_printserver**. The sections below summarise
 
 ## 3. Coding Standards
 
-- Apply the repository's Clean Architecture / SOLID rules (see `CLAUDE.md` and the system prompts listed there).
+- Keep to the layer rules: domain is pure, then application, adapters and composition. import-linter
+  enforces them (`[tool.importlinter]` in `pyproject.toml`); the module map is in
+  [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md).
 - Prefer small, single-purpose modules and functions; avoid mixing orthogonal concerns.
 - Free functions and modules use `snake_case`; classes are `PascalCase`.
 - Keep runtime dependencies minimal. Use the standard library where practical.

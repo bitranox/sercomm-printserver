@@ -5,8 +5,8 @@
 ## Context
 
 Testing the application requires in-memory implementations of adapter
-interfaces (e.g. configuration loaders, email senders) that avoid real
-I/O. The question is whether these belong under `tests/` or under the
+interfaces (e.g. the configuration loader, the print server, the network
+scanner, the neighbour table) that avoid real I/O. The question is whether these belong under `tests/` or under the
 production source tree in `src/sercomm_printserver/adapters/memory/`.
 
 ## Decision

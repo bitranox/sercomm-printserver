@@ -2,6 +2,10 @@
 
 Status: accepted 2026-10-23. Device facts behind this design: `docs/Manual-PS301.md`.
 
+This is a snapshot of the design on 2026-10-23 and is not kept up to date: the implementation
+departs from it in names, CLI syntax and transports. The current state is in
+`docs/systemdesign/module_reference.md`.
+
 ## Goal
 
 A Python library and CLI that manage and print to the SerComm print-server family: the

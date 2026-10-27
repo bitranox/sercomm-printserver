@@ -2,7 +2,7 @@
 
 ## Status
 
-v0.1.0. Describes the modules as they are in the source tree; update it with every change that
+v0.2.0. Describes the modules as they are in the source tree; update it with every change that
 adds a module, a CLI command or a public name.
 
 ## Links & References
@@ -127,36 +127,38 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 ## CLI Commands
 
 Root options: `--version`, `--traceback/--no-traceback`, `--profile NAME`,
-`--set SECTION.KEY=VALUE` (repeatable), `--env-file FILE`, `-h/--help`. Device commands also take
-`--host`, `--timeout`, `--json`, `--json-bare`; changing commands need `--yes`, and
-`password clear`, `store-ip` and `factory-default` also `--confirm-name`.
+`--set SECTION.KEY=VALUE` (repeatable), `--env-file FILE`, `-h/--help`. Device commands take
+`--timeout`, `--json`, `--json-bare`, and all but `discover` and `arp` take `--host`; `discover`
+takes `--network`, the `arp` commands `--mac`, `--ip` and `--interface` (`assign-ip` also
+`--netmask`, `--gateway`). Changing commands need `--yes`, and `password clear`, `store-ip`,
+`factory-default` and `arp factory-reset` also `--confirm-name`.
 
-| Command                    | Purpose                                                              |
-|----------------------------|----------------------------------------------------------------------|
-| `info`                     | Print package metadata                                               |
-| `config`                   | Display the merged configuration                                     |
-| `config-deploy`            | Deploy default configuration to app/host/user directories            |
-| `config-generate-examples` | Write example configuration files                                    |
-| `discover`                 | Find print servers by FTP greeting (`--network CIDR`, repeatable)    |
-| `firmware`                 | Firmware version (FTP SYST; no login)                                |
-| `device-info`              | PSINF self-description: names, MAC, firmware, addresses              |
-| `status`                   | Per-port state and printer status (Telnet monitor)                   |
-| `queue [QUEUE]`            | LPD queue state of L1..L8; sends no print data                       |
-| `device-config show`       | Show the whole CONFIG                                                |
-| `device-config get`        | One parameter by token (`IP_ADDR`) or line number (`4000`)           |
-| `device-config set`        | Change `KEY=VALUE` parameters; shows the diff, writes with `--yes`   |
-| `device-config export`     | Save CONFIG exactly as the device sends it                           |
-| `device-config import`     | Write an exported CONFIG; shows the diff, writes with `--yes`        |
-| `reset`                    | Restart and wait until the device answers again (`--no-wait`)        |
-| `password set`             | Set the login password from `--from-file` or a hidden prompt         |
-| `password clear`           | Clear the login password (PASSRESET)                                 |
-| `store-ip`                 | Store the current address as static IP (SETIP)                       |
-| `factory-default`          | Restore factory settings; the device leaves the network (IP 0.0.0.0) |
-| `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                  |
-| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..3         |
-| `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`    |
-| `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there          |
-| `arp factory-reset`        | Restore factory settings of the device behind `--mac`                |
+| Command                    | Purpose                                                               |
+|----------------------------|-----------------------------------------------------------------------|
+| `info`                     | Print package metadata                                                |
+| `config`                   | Display the merged configuration                                      |
+| `config-deploy`            | Deploy default configuration to app/host/user directories             |
+| `config-generate-examples` | Write example configuration files                                     |
+| `discover`                 | Find print servers by FTP greeting (`--network CIDR`, repeatable)     |
+| `firmware`                 | Firmware version (FTP SYST; PSINF when SYST garbles it, as on 6A10)   |
+| `device-info`              | PSINF self-description: names, MAC, firmware, addresses               |
+| `status`                   | Per-port state and printer status (Telnet monitor)                    |
+| `queue [QUEUE]`            | LPD queue state of L1..L8; sends no print data                        |
+| `device-config show`       | Show the whole CONFIG                                                 |
+| `device-config get`        | One parameter by token (`IP_ADDR`) or line number (`4000`)            |
+| `device-config set`        | Change `KEY=VALUE` parameters; shows the diff, writes with `--yes`    |
+| `device-config export`     | Save CONFIG exactly as the device sends it                            |
+| `device-config import`     | Write an exported CONFIG; shows the diff, writes with `--yes`         |
+| `reset`                    | Restart and wait until the device answers again (`--no-wait`)         |
+| `password set`             | Set the login password from `--from-file` or a hidden prompt          |
+| `password clear`           | Clear the login password (PASSRESET)                                  |
+| `store-ip`                 | Store the current address as static IP (SETIP)                        |
+| `factory-default`          | Restore factory settings (stored IP 0.0.0.0 with DHCP on, name empty) |
+| `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                   |
+| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..3          |
+| `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`     |
+| `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there           |
+| `arp factory-reset`        | Restore factory settings of the device behind `--mac`                 |
 
 ## Exit Codes
 
@@ -190,7 +192,8 @@ change, verifies the upload, and with `apply` restarts the device and reports wh
 reachable (`ConfigWriteResult`).
 
 **Restart wait:** the device restarts about 5 s after the triggering session ends. `reset` waits
-until the SNMP uptime falls back and the device answers again.
+until an SNMP uptime read afterwards is no longer than the time since the trigger, then until FTP
+answers again, for at most 120 s.
 
 **ARP trick:** the static neighbour entry lives only inside `borrowed_address`; the device is
 then spoken to over FTP at the borrowed address, and the entry is removed in every case.

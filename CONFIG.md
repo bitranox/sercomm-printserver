@@ -314,7 +314,9 @@ replaces a destination that carries a bad value, or does not parse at all, witho
 
 ### Generate Example Configuration Files
 
-Create example TOML files showing all available options with default values and documentation comments. Useful for learning the configuration structure or creating initial configuration files.
+Create placeholder files that show where each configuration layer reads from. They hold a generic
+`[service]` table, not this application's settings (see "Generated Files" below); for this
+application's defaults with every option documented, use `config-deploy`.
 
 #### Options Reference
 
@@ -453,13 +455,16 @@ Profile directories are **separate namespaces**. Configuration deployed with a p
 The `[device]` section (shipped in `config.d/50-device.toml`) names the SerComm print server the
 CLI talks to. Every key ships empty or at its default, so nothing is contacted until a host is set.
 
-| Key             | Type             | Default | Environment variable                          | Meaning                                                                                      |
-|-----------------|------------------|---------|-----------------------------------------------|----------------------------------------------------------------------------------------------|
-| `host`          | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__HOST`          | IPv4 address or host name of the print server                                                |
-| `login`         | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first"                              |
-| `password`      | string           | `""`    | `SERCOMM_PRINTSERVER___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`                  |
-| `timeout`       | float, > 0       | `10.0`  | `SERCOMM_PRINTSERVER___DEVICE__TIMEOUT`       | Network timeout for one operation, in seconds                                                |
-| `raw_port_base` | integer, 1-65535 | `9100`  | `SERCOMM_PRINTSERVER___DEVICE__RAW_PORT_BASE` | RAW (direct socket) port of logical printer L1; L2 and L3 use the next two, L4..L8 have none |
+| Key             | Type                | Default | Environment variable                          | Meaning                                                                                                  |
+|-----------------|---------------------|---------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `host`          | string              | `""`    | `SERCOMM_PRINTSERVER___DEVICE__HOST`          | IPv4 address or host name of the print server                                                            |
+| `login`         | string              | `""`    | `SERCOMM_PRINTSERVER___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first" (its default name after a factory reset) |
+| `password`      | string              | `""`    | `SERCOMM_PRINTSERVER___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`                              |
+| `timeout`       | float, 0 < x <= 600 | `10.0`  | `SERCOMM_PRINTSERVER___DEVICE__TIMEOUT`       | Network timeout for one operation, in seconds                                                            |
+| `raw_port_base` | integer, 1-65535    | `9100`  | `SERCOMM_PRINTSERVER___DEVICE__RAW_PORT_BASE` | RAW (direct socket) port of logical printer L1; L2 and L3 use the next two, L4..L8 have none             |
+
+An unknown key or an invalid value is refused: every command that reads the configuration
+(`config` and the device commands) exits 78 with `Error: device.<key>: <reason>`.
 
 In a `.env` file the prefix is dropped:
 
@@ -475,6 +480,22 @@ sercomm-printserver config --section device
 ```
 
 ---
+
+## Logging Section
+
+The `[lib_log_rich]` section configures logging. `config-deploy` writes the shipped defaults with
+a comment for every key to `config.d/90-logging.toml`; `config --section lib_log_rich` shows the
+values in effect. The keys are those of lib_log_rich's own configuration: `service`,
+`environment`, `console_level`, `backend_level`, `console_stream`, `console_format_preset`,
+`console_format_template`, `console_theme`, `console_styles`, `force_color`, `no_color`,
+`dump_format_preset`, `dump_format_template`, `enable_ring_buffer`, `ring_buffer_size`,
+`enable_journald`, `enable_eventlog`, `enable_graylog`, `graylog_endpoint`, `graylog_level`,
+`graylog_protocol`, `graylog_tls`, `queue_enabled`, `queue_maxsize`, `queue_full_policy`,
+`queue_put_timeout`, `queue_stop_timeout`, `rate_limit`, `payload_limits` and `scrub_patterns`.
+
+A key lib_log_rich does not know, or an invalid value, is refused by name: commands that read
+the configuration exit 78 with `Error: lib_log_rich.<key>: <reason>`, and logging starts with the
+package defaults. `info` and `config-deploy` still run.
 
 ## Environment Variables
 
@@ -598,10 +619,10 @@ This approach keeps your customizations separate and safe from updates while sti
 You can import the configuration system directly in Python:
 
 ```python
-import sercomm_printserver as btcli
+import sercomm_printserver as sp
 
 # Get the merged configuration object
-config = btcli.get_config()
+config = sp.get_config()
 print(config.as_dict())
 
 # Access specific sections

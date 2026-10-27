@@ -488,10 +488,10 @@ def _report_deployment_result(
 def cli_config_generate_examples(ctx: click.Context, destination: str, force: bool) -> None:
     """Generate example configuration files in a target directory.
 
-    Creates example TOML configuration files showing all available options
-    with their default values and documentation comments. Useful for learning
-    the configuration structure, creating initial configuration files, or
-    documenting available settings.
+    Writes one placeholder TOML file per configuration layer, showing where each
+    layer lives and how the layers override each other. The files hold generic
+    example keys, not this application's settings: config-deploy writes those
+    with their defaults.
 
     By default, existing files are not overwritten. Use --force to overwrite.
 

@@ -37,42 +37,30 @@ The targets used day to day:
 | `make testintegration` | ONLY tests marked `integration`                                    |
 | CI                     | All tests EXCEPT those marked `local_only` (`-m "not local_only"`) |
 | `pytest tests/`        | ALL tests (no marker filter)                                       |
+| `-m device`            | end-to-end tests against a real print server (opt-in, see below)   |
+| `-m printer`           | end-to-end print tests; also need a printer on the device          |
 
-A test that needs external resources (a real print server, a database) carries both
-`@pytest.mark.integration` (so `make test` skips it and `make testintegration` runs it) and
-`@pytest.mark.local_only` (so CI skips it).
+No test in this repository is marked `integration` or `local_only` at present; the markers stay
+available for a test that needs some other external resource.
 
-### Device Integration Tests
+### Device End-to-End Tests
 
-A test that talks to a real print server reads its address from the `[device]` section, so
-put the device in a `.env` file in the project root (copy from `.env.example`):
+The tests against a real print server live in `tests/test_e2e_device.py` (marker `device`). They
+run only on request, because they change the device:
 
-```bash
-# .env
-DEVICE__HOST=192.0.2.52
-DEVICE__PASSWORD=
-```
+1. Copy `test-device.example.json` to `test-device.json` (gitignored) and describe your test
+   device: address, MAC, names, firmware, and free addresses the tests may borrow.
+2. Run them with `SERCOMM_E2E=1`:
 
-Then run the integration tests:
+   ```bash
+   SERCOMM_E2E=1 pytest -m device tests/test_e2e_device.py
+   ```
 
-```bash
-make testintegration
-```
+   The ARP-trick and factory-reset tests need root and are skipped otherwise, so run the file
+   with `sudo` to include them. Print tests (marker `printer`) also need `SERCOMM_E2E_PRINTER=1`.
 
-### Adding New Integration Tests
-
-Mark tests that require external resources:
-
-```python
-@pytest.mark.local_only
-@pytest.mark.integration
-@pytest.mark.os_agnostic
-def test_real_external_service(...):
-    """Integration test requiring external service."""
-    ...
-```
-
-These tests are skipped by `make test` and in CI, and run with `make testintegration`.
+The suite saves the device's CONFIG to `.e2e/` before it starts and checks at the end that the
+device has it back. Never point it at a production device.
 
 ## Versioning & Metadata
 
@@ -95,9 +83,9 @@ These tests are skipped by `make test` and in CI, and run with `make testintegra
 The GitHub Actions workflows under `.github/workflows/` are distributed from the
 `default_cicd_public` template; change them there, not in this repository.
 
-- `default_cicd_public.yml` -- lint, type-check and test on Linux, macOS and Windows for every
-  Python version listed in the `pyproject.toml` classifiers, verify the pipx and uv installs and
-  run the notebooks.
+- `default_cicd_public.yml` -- lint, type-check and test on Linux and Windows for every Python
+  version listed in the `pyproject.toml` classifiers and on macOS for the newest of them, verify
+  the pipx and uv installs and run the notebooks.
 - `default_release_public.yml` -- on a `v*` tag, builds the artifacts and publishes them to
   PyPI, with the `PYPI_API_TOKEN` secret when it is set and otherwise through a PyPI Trusted
   Publisher (OIDC).
