@@ -65,6 +65,20 @@ def _skip_unless_e2e_enabled(item: pytest.Item) -> None:
         pytest.skip("print test; set SERCOMM_E2E_PRINTER=1 once a printer is attached")
 
 
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Run every end-to-end test on one xdist worker, one after another.
+
+    They all drive the single real test device (writes, restarts, a factory reset), so two
+    of them at once on different workers would change its state under each other. tryfirst
+    because xdist reads the ``xdist_group`` mark in its own modifyitems hook; a mark added
+    after that groups nothing.
+    """
+    for item in items:
+        if item.get_closest_marker("device") is not None or item.get_closest_marker("printer") is not None:
+            item.add_marker(pytest.mark.xdist_group("sercomm_test_device"))
+
+
 def _load_dotenv() -> None:
     """Load .env file when it exists for integration test configuration."""
     try:

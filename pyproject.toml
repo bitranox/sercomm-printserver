@@ -15,7 +15,7 @@ dependencies = [
     "lib_layered_config>=7.3.0",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
-    "ipscout>=2.5.1",
+    "ipscout>=2.5.2",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
@@ -53,6 +53,7 @@ Issues = "https://github.com/bitranox/sercomm-printserver/issues"
 dev = [
   "pytest>=9.1.1",
   "pytest-cov>=7.1.0",
+  "pytest-xdist>=3.8.0",
   "hypothesis>=6.168.5",
   "ruff>=0.17.1",
   "pyright[nodejs]>=1.1.414",
@@ -308,4 +309,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-22T20:10:18Z", certifi = "2026-10-20T02:24:17Z", ipscout = false}
+exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-22T20:10:18Z", ipscout = false}
