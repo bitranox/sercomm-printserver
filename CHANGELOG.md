@@ -12,6 +12,7 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   not know is now refused by name (`lib_log_rich.<key>: Extra inputs are not permitted`) and
   logging starts with the defaults, as for any other refused setting. It used to be ignored, so a
   misspelled setting silently kept its default.
+- Requires `ipscout>=2.5.2`.
 
 ### Fixed
 
