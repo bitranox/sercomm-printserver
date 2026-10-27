@@ -6,6 +6,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.2.1] 2026-10-27 10:41:44
+
 ### Changed
 
 - Requires `lib_log_rich>=8.0.1`. A key in the `[lib_log_rich]` section that lib_log_rich does

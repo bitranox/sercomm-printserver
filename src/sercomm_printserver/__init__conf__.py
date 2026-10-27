@@ -40,7 +40,7 @@ name = "sercomm-printserver"
 #: Human-readable summary shown in CLI help output.
 title = "CLI and Python library for SerComm-based network print servers (PS301 and OEM variants)"
 #: Current release version pulled from ``pyproject.toml`` by automation.
-version = "0.2.0"
+version = "0.2.1"
 #: Repository homepage presented to users.
 homepage = "https://github.com/bitranox/sercomm-printserver"
 #: Author attribution surfaced in CLI output.
