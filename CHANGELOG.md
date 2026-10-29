@@ -16,7 +16,7 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   (`reset`) clears a port stuck refusing. A PS301 has been measured refusing every RAW connect for
   minutes while `status` showed the port idle, so the message is the only place this shows.
 
-## [0.2.1] 2026-10-27 10:41:44
+## [0.2.1] - 2026-10-27
 
 ### Changed
 
@@ -40,7 +40,7 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 - An empty confirmation name no longer counts as repeating the empty server name of a reset
   device, so `factory-default`, `password clear` and `store-ip` refuse it there as everywhere.
 
-## [0.2.0] 2026-10-26 18:46:01
+## [0.2.0] - 2026-10-26
 
 ### Changed
 
@@ -100,7 +100,7 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   and pyright's `extraPaths`, and gives pyright an execution environment rooted at `tests/`. A test
   checks that every doctest collected from `src/` gets both redirects.
 
-## [0.1.0] 2026-10-24
+## [0.1.0] - 2026-10-24
 
 ### Added
 
