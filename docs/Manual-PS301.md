@@ -397,7 +397,13 @@ Nicht heruntergeladen:
   `PS1P100.pdf`/`ps1p.pdf` (1-Port): offline (404), auch im Webarchiv nicht gefunden.
 - Netgear PS101 Reference Manual und PS101-Firmware: keine direkte URL (ManualsLib hat das
   Handbuch nur im Online-Viewer).
-- Firmware 6022 (die dieses Geräts) ist nirgends aufgetaucht.
+- Firmware 6022 (die dieses Geräts) ist nirgends aufgetaucht, 6A10 (die des zweiten PS301)
+  ebenso wenig (gesucht 2026-10-29: Web, TRENDnet TE-310, Perle). Das einzige öffentliche
+  Image für ein Modell mit 2 par + 1 ser ist Perles `ioprint-2p1s6017.zip` (6017). Ob es auf
+  einem PS301 läuft, ist ungeprüft; Hardware-ID und OEM-Kennung können abweichen.
+- Ob 6A10 älter oder neuer als 6022 ist, lässt sich nicht ablesen: Die Version ist keine
+  Dezimalzahl, und 6A10 fehlen `WINS_IP` und `DHCP_MODE`, die jedes untersuchte 60xx-Image
+  (6017 bis 6035) und der PS301 mit 6022 haben. Vermutlich ist 6A10 ein eigener Zweig, kein Nachfolger.
 
 ## Quellen
 
