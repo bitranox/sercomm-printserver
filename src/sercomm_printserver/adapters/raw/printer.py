@@ -55,9 +55,22 @@ def _check_arguments(port: int, data: bytes) -> None:
 
 
 def _connect(host: str, port: int, timeout: float) -> socket.socket:
-    """Open the TCP connection, mapping every failure to ``DeviceUnavailableError``."""
+    """Open the TCP connection, mapping every failure to ``DeviceUnavailableError``.
+
+    A refusal that outlasts the retry window gets its own message: a PS301 RAW port has been
+    measured refusing every connect for minutes while the Telnet monitor showed the port idle,
+    so ``status`` cannot reveal that state and the message is the one place that says a restart
+    clears it. A port that is simply closed refuses the same way, hence "may".
+    """
     try:
         return _connect_retrying_refusals(host, port, timeout)
+    except ConnectionRefusedError as exc:
+        window = min(timeout, _REFUSED_RETRY_SECONDS)
+        raise DeviceUnavailableError(
+            f"{host}:{port} refused every connection for {window:g} s ({exc}). If this is the RAW "
+            "port of a print server that otherwise answers, the port may be stuck refusing; "
+            "status does not show that state, and a restart (reset) clears it"
+        ) from exc
     except (OSError, UnicodeError) as exc:
         # UnicodeError: the IDNA codec refuses a malformed host name before any socket exists.
         raise DeviceUnavailableError(f"{host}:{port} could not be reached: {exc}") from exc
@@ -150,8 +163,9 @@ class RawPrinter:
 
         Raises:
             ValueError: ``data`` is empty or ``port`` is outside 1..65535; nothing is sent.
-            DeviceUnavailableError: The device could not be reached (a refusal still stood after
-                the retry window), or broke the connection;
+            DeviceUnavailableError: The device could not be reached, or refused every connect
+                for the whole retry window (the message then points at a restart), or broke the
+                connection;
                 the message says how many bytes were sent.
         """
         _check_arguments(port, data)

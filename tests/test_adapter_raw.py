@@ -113,12 +113,29 @@ def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
         port = closed_port.getsockname()[1]
 
         started = time.monotonic()
-        with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} could not be reached")):
+        with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} refused every connection")):
             RawPrinter().send(_endpoint(timeout=1.0), port, b"job")
         elapsed = time.monotonic() - started
 
     # The refusal is retried, but never past the endpoint's timeout.
     assert elapsed < 3.0
+
+
+def test_a_port_that_keeps_refusing_points_at_a_restart() -> None:
+    # A PS301 RAW port can refuse every connect for minutes while the monitor shows the port
+    # idle, so status cannot reveal it; the message is the only place the user learns that a
+    # restart clears it.
+    with socket.socket() as closed_port:
+        closed_port.bind(("127.0.0.1", 0))
+        port = closed_port.getsockname()[1]
+
+        with pytest.raises(DeviceUnavailableError) as caught:
+            RawPrinter().send(_endpoint(timeout=1.0), port, b"job")
+
+    message = str(caught.value)
+    assert "refused every connection for 1 s" in message
+    assert "status does not show" in message
+    assert "reset" in message
 
 
 def _accept_one_job(listener: socket.socket, received: bytearray) -> None:

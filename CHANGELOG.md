@@ -12,6 +12,9 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   timeout, before reporting the device unreachable. A PS301 RAW port refuses a new connection for
   about 1-2 s after the previous job closed, so the second of two jobs sent back to back failed
   although nothing was wrong. Other connect errors still fail at once.
+- When a RAW port refuses for the whole retry window, the error now says so and that a restart
+  (`reset`) clears a port stuck refusing. A PS301 has been measured refusing every RAW connect for
+  minutes while `status` showed the port idle, so the message is the only place this shows.
 
 ## [0.2.1] 2026-10-27 10:41:44
 
