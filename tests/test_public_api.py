@@ -23,11 +23,11 @@ def test_open_print_server_returns_a_server_for_the_endpoint_without_contacting_
 
 @pytest.mark.os_agnostic
 def test_discover_refuses_a_malformed_network_before_probing_anything() -> None:
-    with pytest.raises(ValueError, match=r"192\.0\.2\.0/33"):
+    with pytest.raises(ValueError, match=r"'192\.0\.2\.0/33' is not an IPv4 network"):
         sercomm_printserver.discover_print_servers(networks=["192.0.2.0/33"])
 
 
 @pytest.mark.os_agnostic
 def test_a_print_job_refuses_a_name_lpd_cannot_carry() -> None:
-    with pytest.raises(ValueError, match="name"):
+    with pytest.raises(ValueError, match=r"name\n +String should match pattern"):
         sercomm_printserver.PrintJob(data=b"x", name="two words")

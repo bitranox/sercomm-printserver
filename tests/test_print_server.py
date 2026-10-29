@@ -384,7 +384,7 @@ def test_an_empty_confirmation_does_not_match_the_empty_name_of_a_reset_device(
 ) -> None:
     device = _factory_reset_device()
 
-    with pytest.raises(ConfirmationRequiredError, match="SC123456"):
+    with pytest.raises(ConfirmationRequiredError, match=r"needs the device's name as confirmation \( or SC123456\)"):
         call(_server(device), "")
     assert action not in device.actions
 

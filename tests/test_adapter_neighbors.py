@@ -61,7 +61,7 @@ def test_an_unprivileged_write_becomes_a_host_privilege_error() -> None:
     if route is None or route.interface is None:
         pytest.skip("no default route to borrow an interface from")
 
-    with pytest.raises(HostPrivilegeError, match="CAP_NET_ADMIN"):
+    with pytest.raises(HostPrivilegeError, match="changing the neighbour table needs root or CAP_NET_ADMIN"):
         IpscoutNeighborTable(interface=route.interface).set_static(_IP, _MAC)
 
 

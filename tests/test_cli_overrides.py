@@ -179,5 +179,5 @@ def test_the_parsed_set_values_keep_the_tree_and_the_keys() -> None:
 
 @pytest.mark.os_agnostic
 def test_parsing_the_command_line_judges_the_profile_before_the_set_values() -> None:
-    with pytest.raises(click.UsageError, match=r"\.\./x"):
+    with pytest.raises(click.UsageError, match=r"profile contains invalid characters: \.\./x"):
         parse_command_line("../x", ("noequals",))

@@ -110,7 +110,9 @@ def test_factory_reset_needs_the_default_name_that_belongs_to_the_mac() -> None:
     device = _device()
     table = FakeNeighborTable()
 
-    with pytest.raises(ConfirmationRequiredError, match="SC123456"):
+    with pytest.raises(
+        ConfirmationRequiredError, match="factory reset by MAC needs the device's default name SC123456"
+    ):
         factory_reset(table, _opener(device), endpoint=_SESSION, ip=_IP, mac=_MAC, confirm_name="PS_EXAMPLE")
     assert (device.actions, table.history) == ([], [])
 
@@ -256,7 +258,7 @@ def test_assign_ip_refuses_firmware_without_a_dhcp_switch_and_writes_nothing() -
     before = device.config
     table = FakeNeighborTable()
 
-    with pytest.raises(ConfigFormatError, match="DHCP_MODE"):
+    with pytest.raises(ConfigFormatError, match="no parameter 'DHCP_MODE' in this configuration"):
         assign_ip(table, _opener(device), endpoint=_SESSION, ip=_IP, mac=_MAC)
 
     assert (device.config, device.actions, table.entries) == (before, [], {})
