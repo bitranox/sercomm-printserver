@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import socket
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -111,8 +112,42 @@ def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
         closed_port.bind(("127.0.0.1", 0))
         port = closed_port.getsockname()[1]
 
+        started = time.monotonic()
         with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} could not be reached")):
-            RawPrinter().send(_endpoint(), port, b"job")
+            RawPrinter().send(_endpoint(timeout=1.0), port, b"job")
+        elapsed = time.monotonic() - started
+
+    # The refusal is retried, but never past the endpoint's timeout.
+    assert elapsed < 3.0
+
+
+def _accept_one_job(listener: socket.socket, received: bytearray) -> None:
+    conn, _ = listener.accept()
+    with conn:
+        while chunk := conn.recv(4096):
+            received += chunk
+
+
+def test_a_port_that_refuses_for_a_moment_after_a_job_still_takes_the_next_one() -> None:
+    # A PS301 RAW port refuses a new connect for about 1-2 s after the previous job closed. The
+    # same socket is bound but not listening (refusing) at first and starts listening 0.8 s
+    # later, so the port never changes hands and no other process can take it in between.
+    received = bytearray()
+    with socket.socket() as late_port:
+        late_port.bind(("127.0.0.1", 0))
+        port = late_port.getsockname()[1]
+
+        def listen_late() -> None:
+            time.sleep(0.8)
+            late_port.listen(1)
+            _accept_one_job(late_port, received)
+
+        worker = threading.Thread(target=listen_late, daemon=True)
+        worker.start()
+        RawPrinter().send(_endpoint(), port, b"second job")
+        worker.join(_PATIENT)
+
+    assert bytes(received) == b"second job"
 
 
 def test_a_malformed_host_name_is_unavailable_not_a_raw_codec_error() -> None:

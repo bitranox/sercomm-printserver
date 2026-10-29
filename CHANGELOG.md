@@ -6,6 +6,13 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Fixed
+
+- `print raw` (and `RawPrinter.send`) retries a refused connect for up to 3 s, never longer than the
+  timeout, before reporting the device unreachable. A PS301 RAW port refuses a new connection for
+  about 1-2 s after the previous job closed, so the second of two jobs sent back to back failed
+  although nothing was wrong. Other connect errors still fail at once.
+
 ## [0.2.1] 2026-10-27 10:41:44
 
 ### Changed

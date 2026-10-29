@@ -13,6 +13,9 @@ Device behaviour this adapter is shaped by (measured on a PS301, firmware 6022):
 * A RAW port belongs to a logical printer, not to a physical port: 9100-9102 and the vendor's
   DSI sockets 4010/4020/4030 both reach L1..L3, and the data goes wherever that printer is
   routed (``Ln_PROUT``). The caller names the port.
+* After a job's connection closes, the port refuses a new connect for about 1-2 s. A refused
+  connect is therefore retried for a short window before the device counts as unreachable, so
+  two jobs sent back to back both arrive. Other connect errors are not retried.
 
 A device that keeps its side open after the job is not an error: the data was delivered, so a
 timeout while waiting for its close returns normally.
@@ -21,6 +24,7 @@ timeout while waiting for its close returns normally.
 from __future__ import annotations
 
 import socket
+import time
 from typing import TYPE_CHECKING, Final
 
 from ...domain.errors import DeviceUnavailableError
@@ -35,6 +39,11 @@ _RECV_SIZE: Final = 4096
 _DRAIN_LIMIT: Final = 64 * 1024
 _MIN_PORT: Final = 1
 _MAX_PORT: Final = 65535
+#: Longest time a refused connect is retried (never longer than the endpoint's timeout). The
+#: PS301 refuses for about 1-2 s after the previous job closed, so 3 s covers it with margin
+#: while a port that is really closed still fails quickly.
+_REFUSED_RETRY_SECONDS: Final = 3.0
+_REFUSED_RETRY_INTERVAL: Final = 0.25
 
 
 def _check_arguments(port: int, data: bytes) -> None:
@@ -48,10 +57,33 @@ def _check_arguments(port: int, data: bytes) -> None:
 def _connect(host: str, port: int, timeout: float) -> socket.socket:
     """Open the TCP connection, mapping every failure to ``DeviceUnavailableError``."""
     try:
-        return socket.create_connection((host, port), timeout=timeout)
+        return _connect_retrying_refusals(host, port, timeout)
     except (OSError, UnicodeError) as exc:
         # UnicodeError: the IDNA codec refuses a malformed host name before any socket exists.
         raise DeviceUnavailableError(f"{host}:{port} could not be reached: {exc}") from exc
+
+
+def _connect_retrying_refusals(host: str, port: int, timeout: float) -> socket.socket:
+    """Connect, retrying a refused connect until the retry window closes.
+
+    The last attempt catches nothing, so a port that keeps refusing raises its own
+    ``ConnectionRefusedError`` and the caller's message names the real cause.
+    """
+    deadline = time.monotonic() + min(timeout, _REFUSED_RETRY_SECONDS)
+    while time.monotonic() + _REFUSED_RETRY_INTERVAL < deadline:
+        sock = _connect_unless_refused(host, port, timeout)
+        if sock is not None:
+            return sock
+        time.sleep(_REFUSED_RETRY_INTERVAL)
+    return socket.create_connection((host, port), timeout=timeout)
+
+
+def _connect_unless_refused(host: str, port: int, timeout: float) -> socket.socket | None:
+    """Connect once; ``None`` when the port refused, every other error propagates."""
+    try:
+        return socket.create_connection((host, port), timeout=timeout)
+    except ConnectionRefusedError:
+        return None
 
 
 def _transmit(sock: socket.socket, data: bytes, *, address: str) -> None:
@@ -110,14 +142,16 @@ class RawPrinter:
         """Connect to ``port``, send ``data``, half-close and wait for the device to close.
 
         Args:
-            endpoint: The device; ``host`` and ``timeout`` are used. ``timeout`` bounds the
-                connect, each send and the wait for the device's close.
+            endpoint: The device; ``host`` and ``timeout`` are used. ``timeout`` bounds each
+                connect attempt, each send and the wait for the device's close; a refused
+                connect is retried for up to 3 s, never longer than ``timeout``.
             port: The RAW TCP port (9100-9102 or 4010/4020/4030 for L1..L3).
             data: The print data, sent unchanged.
 
         Raises:
             ValueError: ``data`` is empty or ``port`` is outside 1..65535; nothing is sent.
-            DeviceUnavailableError: The device could not be reached, or broke the connection;
+            DeviceUnavailableError: The device could not be reached (a refusal still stood after
+                the retry window), or broke the connection;
                 the message says how many bytes were sent.
         """
         _check_arguments(port, data)
