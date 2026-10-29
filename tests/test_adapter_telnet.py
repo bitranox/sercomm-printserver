@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-import socket
 from typing import TYPE_CHECKING
 
 import pytest
+from fake_lpd_server import closed_port
 from fake_telnet_server import GREETING, IDLE_MONITOR, FakeTelnetServer, TelnetBehaviour
 
 from sercomm_printserver.adapters.telnet import TelnetClient
@@ -129,14 +129,16 @@ def test_the_cap_counts_the_greeting_too() -> None:
 
 
 def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
-    # A bound socket that never listens refuses connects, and holding it keeps the port ours.
-    with socket.socket() as closed_port:
-        closed_port.bind(("127.0.0.1", 0))
-        port = closed_port.getsockname()[1]
-        endpoint = DeviceEndpoint(host="127.0.0.1", telnet_port=port, timeout=_PATIENT)
+    # A port nothing holds is refused on every OS; a bound-but-not-listening one times out on
+    # macOS. The cause check keeps a timeout, which also reads "could not be reached", from
+    # passing. The patient timeout covers Windows, which reports a refusal after about 2 s.
+    port = closed_port()
+    endpoint = DeviceEndpoint(host="127.0.0.1", telnet_port=port, timeout=_PATIENT)
 
-        with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} could not be reached")):
-            TelnetClient().monitor(endpoint)
+    with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} could not be reached")) as caught:
+        TelnetClient().monitor(endpoint)
+
+    assert isinstance(caught.value.__cause__, ConnectionRefusedError)
 
 
 def test_a_malformed_host_name_is_unavailable_not_a_raw_codec_error() -> None:
