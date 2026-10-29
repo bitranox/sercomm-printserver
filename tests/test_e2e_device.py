@@ -259,7 +259,7 @@ def test_raw_data_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer) 
 def test_an_lpd_job_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer, device: _TestDevice) -> None:
     # With no printer ready the device takes the job but holds back its acknowledgement of the
     # data file (measured), so the submit times out; the port shows the job until the restart in
-    # the finally clause clears it. Printing it for real needs a printer (OPEN-WORK [15]).
+    # the finally clause clears it. Printing it for real is in test_e2e_printer.py.
     routed_to = find_line(parse_config(server.read_config_text()), "L1_PROUT").value
     if any(port.state is not PortState.IDLE for port in server.status()):
         pytest.skip("a port is busy already; this test needs every port idle")

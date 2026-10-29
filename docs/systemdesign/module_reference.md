@@ -215,7 +215,8 @@ All under `tests/`:
 * CLI: `test_cli_device.py`, `test_cli_arp.py`, `test_cli_exit_codes.py`,
   `test_cli_main_exit.py`, `test_cli_core.py` and the config/override `test_cli_*.py` modules.
 * Real device: `test_e2e_device.py`, marker `device` (needs `SERCOMM_E2E=1` and
-  `test-device.json`); marker `printer` also needs `SERCOMM_E2E_PRINTER=1`.
+  `test-device.json`); `test_e2e_printer.py`, marker `printer`, also needs
+  `SERCOMM_E2E_PRINTER=1` and a `printer` section in `test-device.json`.
 
 **Doctests:** `--doctest-modules`. **Platform markers:** `os_agnostic`, `os_windows`, `os_macos`,
 `os_posix`, `os_linux`; `local_only`, `integration`. **Coverage gate:** `fail_under = 80`.

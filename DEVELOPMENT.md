@@ -57,7 +57,18 @@ run only on request, because they change the device:
    ```
 
    The ARP-trick and factory-reset tests need root and are skipped otherwise, so run the file
-   with `sudo` to include them. Print tests (marker `printer`) also need `SERCOMM_E2E_PRINTER=1`.
+   with `sudo` to include them.
+3. With a printer attached, the print tests in `tests/test_e2e_printer.py` (marker `printer`) send
+   real jobs. Add a `printer` section to `test-device.json` (`logical_printer` 1..3, the `port` it
+   is routed to, and `label`: `text` for a plain line plus form feed, `dpl` for a one-line Datamax
+   label) and run:
+
+   ```bash
+   SERCOMM_E2E=1 SERCOMM_E2E_PRINTER=1 pytest -m printer tests/test_e2e_printer.py
+   ```
+
+   Each test prints one label naming the test and the time. Nothing else may use the printer
+   during the run: the device serves one RAW connection at a time.
 
 The suite saves the device's CONFIG to `.e2e/` before it starts and checks at the end that the
 device has it back. Never point it at a production device.
