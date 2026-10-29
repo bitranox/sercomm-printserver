@@ -80,7 +80,9 @@ def _connect_retrying_refusals(host: str, port: int, timeout: float) -> socket.s
     """Connect, retrying a refused connect until the retry window closes.
 
     The last attempt catches nothing, so a port that keeps refusing raises its own
-    ``ConnectionRefusedError`` and the caller's message names the real cause.
+    ``ConnectionRefusedError`` and the caller's message names the real cause. Windows retries a
+    refused SYN itself and reports the refusal only after about 2 s (measured 2.07 s), so there a
+    ``timeout`` below that ends each attempt as a plain timeout, which is not retried.
     """
     deadline = time.monotonic() + min(timeout, _REFUSED_RETRY_SECONDS)
     while time.monotonic() + _REFUSED_RETRY_INTERVAL < deadline:
