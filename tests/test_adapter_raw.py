@@ -106,16 +106,26 @@ def test_a_reset_mid_stream_is_unavailable_and_says_how_far_the_job_got() -> Non
     assert big_job.startswith(bytes(server.received))
 
 
-def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
-    # A bound socket that never listens refuses connects, and holding it keeps the port ours.
-    with socket.socket() as closed_port:
-        closed_port.bind(("127.0.0.1", 0))
-        port = closed_port.getsockname()[1]
+def _released_port() -> int:
+    """A loopback port nothing listens on, so every connect to it is refused.
 
-        started = time.monotonic()
-        with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} refused every connection")):
-            RawPrinter().send(_endpoint(), port, b"job")
-        elapsed = time.monotonic() - started
+    The port is bound and released at once. A port that stays bound without listening is not
+    portable: macOS answers it with no reset at all, so the connect hangs until its timeout
+    (CI, macos-latest). Another process could take the released port before the test connects,
+    but with a random ephemeral port that is not worth a fixture.
+    """
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
+    port = _released_port()
+
+    started = time.monotonic()
+    with pytest.raises(DeviceUnavailableError, match=re.escape(f"127.0.0.1:{port} refused every connection")):
+        RawPrinter().send(_endpoint(), port, b"job")
+    elapsed = time.monotonic() - started
 
     # The refusal is retried for a bounded window, then given up. Windows takes about 2 s to
     # report each refused attempt (measured: 2.07 s), so the bound allows for one more attempt
@@ -126,15 +136,10 @@ def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
 def test_a_port_that_keeps_refusing_points_at_a_restart() -> None:
     # A PS301 RAW port can refuse every connect for minutes while the monitor shows the port
     # idle, so status cannot reveal it; the message is the only place the user learns that a
-    # restart clears it.
-    with socket.socket() as closed_port:
-        closed_port.bind(("127.0.0.1", 0))
-        port = closed_port.getsockname()[1]
-
-        # The full patient timeout: on Windows a refused connect takes about 2 s to be reported,
-        # and a timeout below that turns the refusal into a plain TimeoutError.
-        with pytest.raises(DeviceUnavailableError) as caught:
-            RawPrinter().send(_endpoint(), port, b"job")
+    # restart clears it. The full patient timeout: on Windows a refused connect takes about 2 s
+    # to be reported, and a timeout below that turns the refusal into a plain TimeoutError.
+    with pytest.raises(DeviceUnavailableError) as caught:
+        RawPrinter().send(_endpoint(), _released_port(), b"job")
 
     message = str(caught.value)
     assert "refused every connection for 3 s" in message
@@ -150,23 +155,20 @@ def _accept_one_job(listener: socket.socket, received: bytearray) -> None:
 
 
 def test_a_port_that_refuses_for_a_moment_after_a_job_still_takes_the_next_one() -> None:
-    # A PS301 RAW port refuses a new connect for about 1-2 s after the previous job closed. The
-    # same socket is bound but not listening (refusing) at first and starts listening 0.8 s
-    # later, so the port never changes hands and no other process can take it in between.
+    # A PS301 RAW port refuses a new connect for about 1-2 s after the previous job closed. Here
+    # the port refuses (nothing listens) until a listener opens on it 0.8 s later.
     received = bytearray()
-    with socket.socket() as late_port:
-        late_port.bind(("127.0.0.1", 0))
-        port = late_port.getsockname()[1]
+    port = _released_port()
 
-        def listen_late() -> None:
-            time.sleep(0.8)
-            late_port.listen(1)
-            _accept_one_job(late_port, received)
+    def listen_late() -> None:
+        time.sleep(0.8)
+        with socket.create_server(("127.0.0.1", port)) as listener:
+            _accept_one_job(listener, received)
 
-        worker = threading.Thread(target=listen_late, daemon=True)
-        worker.start()
-        RawPrinter().send(_endpoint(), port, b"second job")
-        worker.join(_PATIENT)
+    worker = threading.Thread(target=listen_late, daemon=True)
+    worker.start()
+    RawPrinter().send(_endpoint(), port, b"second job")
+    worker.join(_PATIENT)
 
     assert bytes(received) == b"second job"
 
