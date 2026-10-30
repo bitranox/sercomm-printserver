@@ -12,7 +12,7 @@ dependencies = [
     # 6.4.2: validate_config, the check config --profile runs, refuses exactly what init() refuses.
     "lib_log_rich>=8.1.2",
     "python-dotenv>=1.2.4",
-    "lib_layered_config>=7.4.2",
+    "lib_layered_config>=7.6.1",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
     "ipscout>=2.5.4",
@@ -83,7 +83,7 @@ dev = [
   "pynacl>=1.6.2",               # CVE-2025-69277
   "urllib3>=2.8.0",              # CVE-2025-66471, CVE-2025-66418
   "virtualenv>=21.14.13",        # CVE-2025-22702, CVE-2026-113722, CVE-2026-113713, CVE-2026-115586
-  "certifi>=2026.10.19",         # PYSEC-2026-4320
+  "certifi>=2026.10.23",         # PYSEC-2026-4320
   "filelock>=4.2.4; python_version>='3.11'", # CVE-2026-112906, -112914, -112940; no fixed release supports 3.10
 ]
 
