@@ -6,6 +6,14 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-30
+
+### Changed
+
+- Requires `lib_log_rich>=8.1.2`, `lib_layered_config>=7.6.1` and `ipscout>=2.5.4`.
+- The skill describes the RAW connect retry, the `--timeout` it needs, and how to tell a RAW port
+  stuck refusing from a device that is down.
+
 ### Fixed
 
 - `print raw` (and `RawPrinter.send`) retries a refused connect for up to 3 s, never longer than the

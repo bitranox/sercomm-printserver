@@ -1,6 +1,6 @@
 [project]
 name = "sercomm-printserver"
-version = "0.2.1"
+version = "0.2.2"
 description = "CLI and Python library for SerComm-based network print servers (PS301 and OEM variants)"
 readme = "README.md"
 requires-python = ">=3.10"

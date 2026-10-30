@@ -131,6 +131,18 @@ To check a port, read `status`: each port's state (`Idle` or `Printing`), its ty
 printer status the device reports (`Offline` with no printer attached or switched off).
 Without a printer, `status` is as far as a check can go.
 
+A RAW port refuses a new connection for about 1-2 s after the previous job closed. `print raw`
+retries a refused connect for up to 3 s, but never longer than `--timeout`, so keep `--timeout` at
+3 s or more (the default is 10 s) and jobs sent back to back need no pause of your own. A RAW port
+has also been measured refusing every connect for minutes while `status` showed it `Idle`, a
+different state from the "Printing / Direct Socket" one above: `print raw` then fails with exit
+69, and the message says the port refused for the whole retry window. The envelope's `error` is
+`DeviceUnavailableError`, as for a device that is down, so tell the two apart with a `status` run
+after the failure: if it answers, while `--timeout` was 3 s or more and `raw_port_base` is right,
+the device is up and the port is stuck. `reset --yes` clears it; a refused connect sent no data,
+so send the job again afterwards. A `print raw` that succeeds means the device took the data,
+never that the page printed.
+
 ## Passwords and logins
 
 - Factory state: no password. The FTP login is the device's name (`BOX_NAME`, else the default
