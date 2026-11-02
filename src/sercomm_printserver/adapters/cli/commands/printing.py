@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, BinaryIO
 import rich_click as click
 from pydantic import BaseModel, model_validator
 
+from sercomm_printserver.application.print_server import DEFAULT_VERIFY_TIMEOUT
+from sercomm_printserver.domain.config_types import PortId
 from sercomm_printserver.domain.endpoint import PrintJob
 
 from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
@@ -57,6 +59,20 @@ class PrintReport(BaseModel, frozen=True):
         return self
 
 
+class VerifiedPrintReport(PrintReport, frozen=True):
+    """Answer of ``print raw --verify``: the port the job went to reads idle again.
+
+    Example:
+        >>> report = VerifiedPrintReport(
+        ...     host="192.0.2.52", transport=PrintTransport.RAW, queue=None, printer=3, size=2, idle_port=PortId.SP
+        ... )
+        >>> report.model_dump_json()
+        '{"host":"192.0.2.52","transport":"raw","queue":null,"printer":3,"size":2,"idle_port":"SP"}'
+    """
+
+    idle_port: PortId
+
+
 def _flags(host: str | None, timeout: float | None, as_json: bool, as_json_bare: bool) -> DeviceFlags:
     return DeviceFlags(host=host, timeout=timeout, as_json=as_json, as_json_bare=as_json_bare)
 
@@ -66,7 +82,8 @@ def _render(report: PrintReport) -> str:
         target = f"{report.transport.value.upper()} queue {report.queue}"
     else:
         target = f"{report.transport.value.upper()} port of L{report.printer}"
-    return f"{report.host}: sent {report.size} bytes to {target}"
+    sent = f"{report.host}: sent {report.size} bytes to {target}"
+    return f"{sent}; {report.idle_port.value} is Idle again" if isinstance(report, VerifiedPrintReport) else sent
 
 
 @click.group("print", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -108,6 +125,19 @@ def cli_print_lpd(
 @cli_print.command("raw", context_settings=CLICK_CONTEXT_SETTINGS)
 @argument("printer", type=click.IntRange(min=1, max=3))
 @argument("source", type=click.File("rb"))
+@option(
+    "--verify",
+    is_flag=True,
+    default=False,
+    help="Wait for the routed port to read Idle before sending, and again after. Idle means the port is free, "
+    "not that a page came out. Busy before the send exits 75, nothing sent; busy after it exits 110, data sent.",
+)
+@option(
+    "--verify-timeout",
+    type=click.FloatRange(min=0.1, max=3600),
+    default=None,
+    help=f"Seconds each --verify wait may take, before and after the send (default {DEFAULT_VERIFY_TIMEOUT:g}).",
+)
 @device_options
 @click.pass_context
 def cli_print_raw(
@@ -115,23 +145,32 @@ def cli_print_raw(
     printer: int,
     source: BinaryIO,
     *,
+    verify: bool,
+    verify_timeout: float | None,
     host: str | None,
     timeout: float | None,
     as_json: bool,
     as_json_bare: bool,
 ) -> None:
     """Send SOURCE (a file, or - for stdin) to the RAW port of logical printer PRINTER (1..3)."""
+    if verify_timeout is not None and not verify:
+        # Taking the value and not watching would read as a verified print that was never verified.
+        raise click.UsageError("--verify-timeout needs --verify")
 
     def work(server: PrintServer) -> PrintReport:
         data = source.read()
-        server.print_raw(printer, data)
-        return PrintReport(
+        fields = PrintReport(
             host=server.endpoint.host, transport=PrintTransport.RAW, queue=None, printer=printer, size=len(data)
         )
+        if not verify:
+            server.print_raw(printer, data)
+            return fields
+        status = server.print_raw_verified(printer, data, timeout=verify_timeout or DEFAULT_VERIFY_TIMEOUT)
+        return VerifiedPrintReport(**fields.model_dump(), idle_port=status.port)
 
     run_device_command(
         ctx, command=CommandName.PRINT_RAW, flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
     )
 
 
-__all__ = ["PrintReport", "PrintTransport", "cli_print"]
+__all__ = ["PrintReport", "PrintTransport", "VerifiedPrintReport", "cli_print"]

@@ -23,7 +23,9 @@ from sercomm_printserver.domain.errors import (
     DeviceResponseError,
     DeviceUnavailableError,
     HostPrivilegeError,
+    JobNotDrainedError,
     NeighborTableError,
+    PortBusyError,
     UnverifiedAddressError,
 )
 
@@ -56,6 +58,8 @@ _EXIT_CODES: tuple[tuple[type[Exception], ExitCode], ...] = (
     (ConfigurationError, ExitCode.CONFIG_ERROR),
     (DeviceUnavailableError, ExitCode.DEVICE_UNAVAILABLE),
     (DeviceResponseError, ExitCode.PROTOCOL_ERROR),
+    (JobNotDrainedError, ExitCode.TIMEOUT),
+    (PortBusyError, ExitCode.PORT_BUSY),
     (HostPrivilegeError, ExitCode.PERMISSION_DENIED),
     (UnverifiedAddressError, ExitCode.PERMISSION_DENIED),
     (NeighborTableError, ExitCode.GENERAL_ERROR),

@@ -41,7 +41,12 @@ from sercomm_printserver.composition import open_print_server
 from sercomm_printserver.domain.config_codec import find_line, parse_config, render_config, with_value
 from sercomm_printserver.domain.device_files import ReadableFile
 from sercomm_printserver.domain.endpoint import DeviceEndpoint, PrintJob
-from sercomm_printserver.domain.errors import DeviceResponseError, DeviceUnavailableError
+from sercomm_printserver.domain.errors import (
+    DeviceResponseError,
+    DeviceUnavailableError,
+    JobNotDrainedError,
+    PortBusyError,
+)
 from sercomm_printserver.domain.port_status import PortState, PortType
 
 if TYPE_CHECKING:
@@ -254,6 +259,30 @@ def test_raw_data_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer) 
 
     assert busy == {routed_to}
     assert all(port.state is PortState.IDLE for port in server.status())
+
+
+def test_a_verified_raw_print_with_no_printer_to_take_it_reports_the_stuck_port(server: PrintServer) -> None:
+    # The same queued job as above, which a plain print_raw reports as success.
+    routed_to = find_line(parse_config(server.read_config_text()), "L1_PROUT").value
+    if any(port.state is not PortState.IDLE for port in server.status()):
+        pytest.skip("a port is busy already; this test needs every port idle")
+    try:
+        with pytest.raises(JobNotDrainedError, match=rf"the data was sent, but {routed_to} is still Printing"):
+            server.print_raw_verified(1, b"sercomm-printserver E2E verified RAW probe\r\n", timeout=5.0)
+    finally:
+        server.reset(wait=True)
+
+
+def test_a_verified_raw_print_to_a_port_already_held_sends_nothing(server: PrintServer) -> None:
+    routed_to = find_line(parse_config(server.read_config_text()), "L1_PROUT").value
+    if any(port.state is not PortState.IDLE for port in server.status()):
+        pytest.skip("a port is busy already; this test needs every port idle")
+    try:
+        server.print_raw(1, b"sercomm-printserver E2E RAW probe, holds the port\r\n")
+        with pytest.raises(PortBusyError, match=rf"nothing was sent, {routed_to} is still Printing"):
+            server.print_raw_verified(1, b"sercomm-printserver E2E verified RAW probe\r\n", timeout=3.0)
+    finally:
+        server.reset(wait=True)
 
 
 def test_an_lpd_job_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer, device: _TestDevice) -> None:

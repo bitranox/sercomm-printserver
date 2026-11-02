@@ -41,7 +41,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 #: How long a job may take to drain to an idle port. A one-line label is under 100 bytes, a
 #: fraction of a second even on a 9600-baud serial port; the margin covers the printer itself.
 _DRAIN_SECONDS = 30.0
-#: Pause between status reads while waiting; each read is an FTP session of its own.
+#: Pause between status reads while waiting; each read is a Telnet session of its own.
 _POLL_SECONDS = 1.0
 
 
@@ -140,6 +140,14 @@ def test_two_raw_jobs_back_to_back_reach_the_printer_and_the_port_drains(
             server.reset(wait=True)
 
     assert drained, f"{printer.port} still busy {_DRAIN_SECONDS:.0f} s after the jobs"
+
+
+def test_a_verified_raw_job_returns_with_the_routed_port_idle(server: PrintServer, printer: _Printer) -> None:
+    _require_idle_start(server, printer.port)
+
+    status = server.print_raw_verified(printer.logical_printer, _label(printer, "E2E RAW verified"))
+
+    assert (status.port.value, status.state) == (printer.port, PortState.IDLE)
 
 
 def test_an_lpd_job_is_acknowledged_and_the_port_drains(server: PrintServer, printer: _Printer) -> None:

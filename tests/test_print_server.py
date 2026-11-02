@@ -19,6 +19,8 @@ from sercomm_printserver.domain.errors import (
     ConfirmationRequiredError,
     DeviceResponseError,
     DeviceUnavailableError,
+    JobNotDrainedError,
+    PortBusyError,
 )
 from sercomm_printserver.domain.port_status import PortState
 
@@ -430,3 +432,175 @@ def test_raw_printing_refuses_before_connecting(printer: int, data: bytes, messa
     with pytest.raises(ValueError, match=message):
         _server(device).print_raw(printer, data)
     assert device.raw_sends == []
+
+
+# ---------------------------------------------------------------- printing, verified
+
+
+def _monitor(*, p1: str = "Idle", p2: str = "Idle", sp: str = "Idle") -> str:
+    blocks = [("P1", "Parallel", p1), ("P2", "Parallel", p2), ("SP", "Serial", sp)]
+    return "\r\n\r\n".join(_monitor_block(port, kind, state) for port, kind, state in blocks) + "\r\n"
+
+
+def _monitor_block(port: str, kind: str, state: str) -> str:
+    head = f"({port})STATE: {state}\r\nTYPE: {kind}\r\nPRINTER STATUS: On-Line"
+    return head if state == "Idle" else f"{head}\r\nBYTES SERVICED:          0\r\nOCCUPIED BY: Direct Socket"
+
+
+def test_a_verified_raw_print_returns_once_the_routed_port_is_idle_again() -> None:
+    device = _device()
+    # Before the send, then twice busy, then drained. L3 is routed to SP in the dumped CONFIG.
+    device.monitor_replies = [_monitor(), _monitor(sp="Printing"), _monitor(sp="Printing"), _monitor()]
+    clock = _ManualClock()
+
+    status = _server(device, clock=clock).print_raw_verified(3, b"\x1bE")
+
+    assert device.raw_sends == [(9102, b"\x1bE")]
+    assert (status.port.value, status.state) == ("SP", PortState.IDLE)
+    assert device.monitor_replies == []
+    assert clock.sleeps == [1.0, 1.0]
+
+
+def test_a_verified_raw_print_ignores_a_port_the_printer_is_not_routed_to() -> None:
+    device = _device()
+    device.monitor_replies = [_monitor(p1="Printing"), _monitor(p1="Printing")]
+    clock = _ManualClock()
+
+    status = _server(device, clock=clock).print_raw_verified(3, b"x")
+
+    assert status.port.value == "SP"
+    assert clock.sleeps == []
+
+
+def test_a_verified_raw_print_follows_the_routing_in_the_config() -> None:
+    device = _device()
+    device.config = device.config.replace("0100 L1_PROUT:P1", "0100 L1_PROUT:P2")
+    device.monitor_replies = [_monitor(), _monitor()]
+
+    assert _server(device).print_raw_verified(1, b"x").port.value == "P2"
+
+
+def test_a_port_that_stays_busy_fails_the_verified_print_after_the_data_was_sent() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+    device.monitor_replies = [_monitor()]
+    clock = _ManualClock()
+
+    with pytest.raises(JobNotDrainedError) as caught:
+        _server(device, clock=clock).print_raw_verified(3, b"x", timeout=2.5)
+
+    assert device.raw_sends == [(9102, b"x")]
+    assert str(caught.value) == (
+        "192.0.2.52: the data was sent, but SP is still Printing 2.5 s later "
+        "(occupied by Direct Socket, 0 bytes serviced); a restart clears the port"
+    )
+    # The last pause is cut to the deadline, and one more read decides at the deadline itself.
+    assert clock.sleeps == [1.0, 1.0, 0.5]
+
+
+def test_a_verified_raw_print_waits_for_a_busy_port_before_sending() -> None:
+    device = _device()
+    # Busy twice before the send, free, then busy once more after the send, then drained.
+    device.monitor_replies = [
+        _monitor(sp="Printing"),
+        _monitor(sp="Printing"),
+        _monitor(),
+        _monitor(sp="Printing"),
+        _monitor(),
+    ]
+    clock = _ManualClock()
+
+    status = _server(device, clock=clock).print_raw_verified(3, b"x")
+
+    assert status.state is PortState.IDLE
+    assert device.raw_sends == [(9102, b"x")]
+    assert device.monitor_replies == []
+    assert clock.sleeps == [1.0, 1.0, 1.0]
+
+
+def test_a_port_that_stays_busy_before_the_send_gets_nothing() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+    clock = _ManualClock()
+
+    with pytest.raises(PortBusyError) as caught:
+        _server(device, clock=clock).print_raw_verified(3, b"x", timeout=2.5)
+
+    assert device.raw_sends == []
+    assert str(caught.value) == (
+        "192.0.2.52: nothing was sent, SP is still Printing after 2.5 s "
+        "(occupied by Direct Socket, 0 bytes serviced); a restart clears a stuck port"
+    )
+    assert clock.sleeps == [1.0, 1.0, 0.5]
+
+
+def test_each_wait_of_a_verified_print_gets_the_whole_timeout() -> None:
+    device = _device()
+    device.monitor_replies = [_monitor(sp="Printing"), _monitor(sp="Printing"), _monitor()]
+    device.monitor_text = _monitor(sp="Printing")
+    clock = _ManualClock()
+
+    with pytest.raises(JobNotDrainedError):
+        _server(device, clock=clock).print_raw_verified(3, b"x", timeout=2.0)
+
+    # Two pauses before the send, then two more after it: the first wait did not use up the second.
+    assert device.raw_sends == [(9102, b"x")]
+    assert clock.sleeps == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_one_unanswered_status_read_before_the_send_does_not_stop_the_print() -> None:
+    device = _device()
+    device.monitor_replies = [DeviceUnavailableError("no answer"), _monitor(), _monitor()]
+
+    assert _server(device).print_raw_verified(3, b"x").port.value == "SP"
+    assert device.raw_sends == [(9102, b"x")]
+
+
+def test_one_unanswered_status_read_does_not_fail_a_verified_print() -> None:
+    device = _device()
+    device.monitor_replies = [_monitor(), DeviceUnavailableError("no answer"), _monitor()]
+
+    assert _server(device).print_raw_verified(3, b"x").port.value == "SP"
+
+
+def test_a_port_that_cannot_be_read_any_more_fails_saying_the_data_was_sent() -> None:
+    device = _device()
+    device.monitor_replies = [_monitor(), *[DeviceUnavailableError("no answer")] * 5]
+
+    # Not a DeviceUnavailableError: a caller branching on that type reads it as "nothing was sent",
+    # sends the job again and prints it twice.
+    with pytest.raises(JobNotDrainedError, match=r"the data was sent, but SP could not be read 2 s later: no answer"):
+        _server(device).print_raw_verified(3, b"x", timeout=2.0)
+    assert device.raw_sends == [(9102, b"x")]
+
+
+def test_a_port_unreadable_until_the_deadline_is_unavailable_with_nothing_sent() -> None:
+    device = _device()
+    device.monitor_replies = [DeviceUnavailableError("no answer")] * 5
+
+    with pytest.raises(DeviceUnavailableError, match=r"nothing was sent, SP could not be read for 2 s: no answer"):
+        _server(device).print_raw_verified(3, b"x", timeout=2.0)
+    assert device.raw_sends == []
+
+
+def test_a_routed_port_the_status_does_not_list_is_refused_before_sending() -> None:
+    device = _device()
+    device.monitor_text = "(P1)STATE: Idle\r\nTYPE: Parallel\r\nPRINTER STATUS: Offline\r\n"
+
+    with pytest.raises(DeviceResponseError, match=r"L3 is routed to SP, which the status does not list"):
+        _server(device).print_raw_verified(3, b"x")
+    assert device.raw_sends == []
+
+
+@pytest.mark.parametrize(
+    ("printer", "data", "message"),
+    [(1, b"", "without data"), (0, b"x", "has no RAW port"), (4, b"x", "only L1..L3 have one")],
+)
+def test_a_verified_raw_print_refuses_bad_input_before_reading_the_device(
+    printer: int, data: bytes, message: str
+) -> None:
+    device = _device()
+    device.reachable = False
+
+    with pytest.raises(ValueError, match=message):
+        _server(device).print_raw_verified(printer, data)

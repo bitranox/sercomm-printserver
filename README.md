@@ -220,6 +220,18 @@ an LPD job. Data that no printer takes stays queued and keeps the port busy unti
 there fails after `--timeout` with exit 76, because the device holds back its acknowledgement.
 `print lpd` names the job `job` unless `--job-name` says otherwise.
 
+`print raw` succeeds as soon as the device took the bytes, whatever the port is doing: a port held
+by another job accepts a new one, and a job that blocks the port afterwards goes unnoticed. With
+`--verify` it waits for the port the printer is routed to to read `Idle`, sends, and waits again,
+each for up to `--verify-timeout` seconds (default 30; raise it for a long job). A port still busy
+before the send exits 75 with nothing sent, so sending later is safe. After the send it exits 110:
+the data was sent, so do not resend it blindly. `Idle` means the port is free again, not that a
+page came out.
+
+```bash
+sercomm-printserver print raw 3 label.dpl --verify
+```
+
 ### A device without a usable address
 
 The device answers any address this host maps to its MAC, which is how the vendor manuals
@@ -259,10 +271,12 @@ any JSON is written: exit 2 and a usage message on stderr. Exit codes do not dep
 |           | `config-deploy`: a system dir)                                               |
 | 22        | invalid argument                                                             |
 | 69        | the device did not answer, or did not come back after a restart              |
+| 75        | `print raw --verify`: the port stayed busy before the send, nothing was sent |
 | 76        | the device answered something this firmware family does not send, or stored  |
 |           | a value other than the one sent (rare: run the command again)                |
 | 77        | refused: confirmation missing, the device wants a login, or a wrong password |
 | 78        | configuration error, such as no device address                               |
+| 110       | `print raw --verify`: the data was sent, the port was not read as idle       |
 
 ### Python
 

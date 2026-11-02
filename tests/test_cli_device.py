@@ -381,3 +381,79 @@ def test_print_raw_with_empty_input_sends_nothing_and_exits_22(
 
     assert result.exit_code == 22
     assert device.raw_sends == []
+
+
+_IDLE_PORTS = (
+    "(P1)STATE: Idle\r\nTYPE: Parallel\r\nPRINTER STATUS: Offline\r\n\r\n"
+    "(P2)STATE: Idle\r\nTYPE: Parallel\r\nPRINTER STATUS: Offline\r\n\r\n"
+    "(SP)STATE: Idle\r\nTYPE: Serial\r\nPRINTER STATUS: On-Line\r\n"
+)
+
+
+def test_print_raw_verify_reports_the_port_that_went_idle(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.monitor_text = _IDLE_PORTS
+
+    human = cli_runner.invoke(cli_root.cli, ["print", "raw", "3", "-", *_HOST, "--verify"], obj=services, input=b"x")
+    machine = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "3", "-", *_HOST, "--verify", "--json-bare"], obj=services, input=b"x"
+    )
+
+    assert human.exit_code == 0
+    assert human.stdout == "192.0.2.52: sent 1 bytes to RAW port of L3; SP is Idle again\n"
+    assert machine.stdout == (
+        '{"ok":true,"command":"print raw","data":{"host":"192.0.2.52","transport":"raw",'
+        '"queue":null,"printer":3,"size":1,"idle_port":"SP"},"skipped":[]}\n'
+    )
+
+
+def test_print_raw_verify_exits_75_and_sends_nothing_when_the_port_stays_busy_before_the_send(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    # The dumped monitor text has every port "Printing / Direct Socket".
+    result = cli_runner.invoke(
+        cli_root.cli,
+        ["print", "raw", "3", "-", *_HOST, "--verify", "--verify-timeout", "0.1", "--json-bare"],
+        obj=services,
+        input=b"x",
+    )
+
+    assert result.exit_code == 75
+    envelope = _json(result.stdout)
+    assert (envelope["ok"], envelope["error"]) == (False, "PortBusyError")
+    assert "nothing was sent, SP is still Printing" in str(envelope["message"])
+    assert device.raw_sends == []
+
+
+def test_print_raw_verify_exits_110_when_the_port_stays_busy_after_the_send(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    # Free for the read before the send, then the dumped text: every port "Printing / Direct Socket".
+    device.monitor_replies = [_IDLE_PORTS]
+
+    result = cli_runner.invoke(
+        cli_root.cli,
+        ["print", "raw", "3", "-", *_HOST, "--verify", "--verify-timeout", "0.1", "--json-bare"],
+        obj=services,
+        input=b"x",
+    )
+
+    assert result.exit_code == 110
+    envelope = _json(result.stdout)
+    assert (envelope["ok"], envelope["error"]) == (False, "JobNotDrainedError")
+    assert "the data was sent, but SP is still Printing" in str(envelope["message"])
+    assert device.raw_sends == [(9102, b"x")]
+
+
+def test_print_raw_verify_timeout_without_verify_is_a_usage_error(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    # Taking the value and not watching would read as a verified print that was never verified.
+    result = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "1", "-", *_HOST, "--verify-timeout", "5"], obj=services, input=b"x"
+    )
+
+    assert result.exit_code == 2
+    assert "--verify-timeout needs --verify" in result.stderr
+    assert device.raw_sends == []

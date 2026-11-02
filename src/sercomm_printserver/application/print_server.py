@@ -27,8 +27,10 @@ from ..domain.errors import (
     ConfirmationRequiredError,
     DeviceResponseError,
     DeviceUnavailableError,
+    JobNotDrainedError,
+    PortBusyError,
 )
-from ..domain.port_status import PortStatus, parse_monitor
+from ..domain.port_status import PortState, PortStatus, parse_monitor
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from ..domain.config_model import DeviceConfig
+    from ..domain.config_types import PortId
     from ..domain.endpoint import DeviceEndpoint, PrintJob
     from .ports import FtpPort, LpdPort, RawPort, TelnetPort, TftpPort, UptimePort
 
@@ -53,6 +56,12 @@ _READ_BACK_MASKED: Final = frozenset({cat.mail_line(cat.MailField.PASSWORD)})
 #: How long a restart may take before waiting for it is given up.
 _RESTART_TIMEOUT: Final = 120.0
 _POLL_INTERVAL: Final = 0.5
+#: How long a port may stay busy before and after a verified RAW print: a short label drains in well
+#: under a second, and the printer's own handling gets the rest. A long job needs its own value.
+DEFAULT_VERIFY_TIMEOUT: Final = 30.0
+#: Pause between status reads of a verified print. Each read is a Telnet session of about 1.1 s
+#: (measured on a PS301, FW 6022), so a shorter pause would keep the device's Telnet side busy.
+_VERIFY_POLL_INTERVAL: Final = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +268,65 @@ class PrintServer:
         A job stays queued as "Printing / Direct Socket" while no printer takes it, so empty data
         is refused before anything is sent.
         """
+        self._ports.raw.send(self._endpoint, self._raw_port(logical_printer, data), data)
+
+    def print_raw_verified(
+        self, logical_printer: int, data: bytes, *, timeout: float = DEFAULT_VERIFY_TIMEOUT
+    ) -> PortStatus:
+        """Wait until the routed port is idle, send ``data``, and wait until it is idle again.
+
+        A plain RAW send succeeds once the device took the bytes, whatever the port is doing.
+        Measured on a PS301 (FW 6022): a port held by another job accepts a new one without
+        complaint, the first status read after a job a printer took says ``Idle``, and after one no
+        printer takes it says ``Printing`` until a restart. Idle means the port is free, never that
+        a page came out.
+
+        Args:
+            logical_printer: The logical printer (1-3).
+            data: The print data.
+            timeout: Seconds each of the two waits may take, so the worst case is twice this.
+
+        Returns:
+            The status of the routed port once it is idle after the send.
+
+        Raises:
+            ValueError: The data is empty or the printer has no RAW port; nothing was sent.
+            DeviceResponseError: The printer is routed to a port the status does not list.
+            PortBusyError: The port stayed busy before the send; nothing was sent.
+            JobNotDrainedError: The data was sent and the port stayed busy or could not be read.
+            DeviceUnavailableError: The device failed before or during the send, never after it.
+        """
+        port = self._raw_port(logical_printer, data)
+        routed = self.read_config().logical_printers[logical_printer - 1].port
+        host = self._endpoint.host
+        before = self._last_read_until_idle(logical_printer, routed, timeout=timeout)
+        if isinstance(before, DeviceUnavailableError):
+            raise DeviceUnavailableError(
+                f"{host}: nothing was sent, {routed.value} could not be read for {timeout:g} s: {before}"
+            ) from before
+        if before.state is not PortState.IDLE:
+            raise PortBusyError(
+                f"{host}: nothing was sent, {routed.value} is still {before.state.value} after {timeout:g} s "
+                f"({_occupancy(before)}); a restart clears a stuck port"
+            )
+        self._ports.raw.send(self._endpoint, port, data)
+        # The data is sent from here on, so no failure may be a DeviceUnavailableError: a caller
+        # reads that as unsent, and a resend prints the job twice.
+        after = self._last_read_until_idle(logical_printer, routed, timeout=timeout)
+        if isinstance(after, DeviceUnavailableError):
+            raise JobNotDrainedError(
+                f"{host}: the data was sent, but {routed.value} could not be read {timeout:g} s later: {after}"
+            ) from after
+        if after.state is not PortState.IDLE:
+            raise JobNotDrainedError(
+                f"{host}: the data was sent, but {routed.value} is still {after.state.value} {timeout:g} s later "
+                f"({_occupancy(after)}); a restart clears the port"
+            )
+        return after
+
+    # ------------------------------------------------------------------ helpers
+
+    def _raw_port(self, logical_printer: int, data: bytes) -> int:
         if not data:
             raise ValueError("refusing to open a RAW print port without data to send")
         port = self._raw_port_base + logical_printer - 1
@@ -266,9 +334,35 @@ class PrintServer:
             raise ValueError(f"logical printer {logical_printer} has no RAW port")
         if logical_printer > _RAW_LAST_PRINTER:
             raise ValueError(f"logical printer {logical_printer} has no RAW port: only L1..L3 have one")
-        self._ports.raw.send(self._endpoint, port, data)
+        return port
 
-    # ------------------------------------------------------------------ helpers
+    def _routed_status(self, logical_printer: int, routed: PortId) -> PortStatus:
+        for status in self.status():
+            if status.port is routed:
+                return status
+        raise DeviceResponseError(f"L{logical_printer} is routed to {routed.value}, which the status does not list")
+
+    def _last_read_until_idle(
+        self, logical_printer: int, routed: PortId, *, timeout: float
+    ) -> PortStatus | DeviceUnavailableError:
+        """Read the port until it is idle or the time is up; return the last read, or why it failed.
+
+        One unanswered read says nothing about the port, so only the last one decides. The caller
+        words the failure, since it alone knows whether the data has been sent.
+        """
+        deadline = self._clock() + timeout
+        while True:
+            latest: PortStatus | DeviceUnavailableError
+            try:
+                latest = self._routed_status(logical_printer, routed)
+            except DeviceUnavailableError as error:
+                latest = error
+            if isinstance(latest, PortStatus) and latest.state is PortState.IDLE:
+                return latest
+            left = deadline - self._clock()
+            if left <= 0:
+                return latest
+            self._sleep(min(_VERIFY_POLL_INTERVAL, left))
 
     def _read_text(self, name: ReadableFile) -> str:
         data = self._with_login(lambda endpoint: self._ports.ftp.retrieve(endpoint, name))
@@ -362,4 +456,8 @@ def _describe_changes(changes: list[ConfigChange]) -> str:
     return "; ".join(f"{change.token}: sent {change.old!r}, stored {change.new!r}" for change in changes)
 
 
-__all__ = ["ConfigWriteResult", "DevicePorts", "PrintServer"]
+def _occupancy(status: PortStatus) -> str:
+    return f"occupied by {status.occupied_by}, {status.bytes_serviced} bytes serviced"
+
+
+__all__ = ["DEFAULT_VERIFY_TIMEOUT", "ConfigWriteResult", "DevicePorts", "PrintServer"]

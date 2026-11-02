@@ -27,11 +27,12 @@ class ExitCode(IntEnum):
     * 2-13: errno-derived codes (ENOENT, EACCES)
     * 22: EINVAL
     * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer
+    * 75: EX_TEMPFAIL (sysexits.h): ``print raw --verify`` found the port busy and sent nothing
     * 76: EX_PROTOCOL (sysexits.h): the print server answered something unexpected
     * 77: EX_NOPERM (sysexits.h): refused by policy, such as a destructive action
       without its confirmation flags
     * 78: EX_CONFIG (sysexits.h)
-    * 110: ETIMEDOUT
+    * 110: ETIMEDOUT: ``print raw --verify`` sent the data and the port was not read as idle
     * 128+N: signal N (informational only)
 
     Example:
@@ -47,6 +48,7 @@ class ExitCode(IntEnum):
     PERMISSION_DENIED = 13
     INVALID_ARGUMENT = 22
     DEVICE_UNAVAILABLE = 69
+    PORT_BUSY = 75
     PROTOCOL_ERROR = 76
     REFUSED = 77
     CONFIG_ERROR = 78

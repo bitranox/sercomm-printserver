@@ -42,7 +42,7 @@ cannot.
 | Back up / restore the configuration   | `device-config export FILE` / `device-config import FILE --yes`            |
 | Restart                               | `reset --yes`                                                              |
 | Print                                 | `print lpd L1 FILE` (preferred; `-` reads stdin, `--job-name`) or          |
-|                                       | `print raw 1 FILE`                                                         |
+|                                       | `print raw 1 FILE` (`--verify` fails if the job blocks the port)           |
 | Set the login password                | `password set --yes` (hidden prompt or `--from-file FILE`)                 |
 | Clear the login password              | `password clear --yes --confirm-name NAME`                                 |
 | Keep the current address as static    | `store-ip --yes --confirm-name NAME`                                       |
@@ -79,24 +79,26 @@ envelope's `error` names the exception (77: `ConfirmationRequiredError` for a mi
 confirmation, `AuthenticationRequiredError` for a login the device wants; 13:
 `HostPrivilegeError` or `UnverifiedAddressError`):
 
-| Code | Meaning                                                                                      |
-|------|----------------------------------------------------------------------------------------------|
-| 0    | done                                                                                         |
-| 1    | any other failure (the kernel refused the ARP entry for another reason, an unexpected error) |
-| 2    | usage error, reported by the command-line parser (no JSON)                                   |
-| 13   | this host lacks a right: `arp` writing the ARP table or sending an ARP request to check      |
-|      | the address is free; `config-deploy` a system dir                                            |
-| 22   | invalid argument (malformed address, unknown CONFIG key, empty RAW data, `--ip` held         |
-|      | by another MAC or behind a router)                                                           |
-| 69   | device did not answer (refused, timed out, did not come back after a restart, or gave no     |
-|      | SNMP answer within 120 s, so its restart could not be confirmed)                             |
-| 76   | device answered something this firmware family does not send, stored a value other than      |
-|      | the one sent (see "Changes and restarts"), or held back an LPD acknowledgement past          |
-|      | `--timeout` (a port without a printer)                                                       |
-| 77   | refused: missing `--yes` / wrong `--confirm-name`, or the device wants a login (530) or      |
-|      | rejected the password (531)                                                                  |
-| 78   | configuration error (no `--host` and no `[device] host`, an unknown or invalid key in        |
-|      | the configuration files)                                                                     |
+| Code | Meaning                                                                                        |
+|------|------------------------------------------------------------------------------------------------|
+| 0    | done                                                                                           |
+| 1    | any other failure (the kernel refused the ARP entry for another reason, an unexpected error)   |
+| 2    | usage error, reported by the command-line parser (no JSON)                                     |
+| 13   | this host lacks a right: `arp` writing the ARP table or sending an ARP request to check        |
+|      | the address is free; `config-deploy` a system dir                                              |
+| 22   | invalid argument (malformed address, unknown CONFIG key, empty RAW data, `--ip` held           |
+|      | by another MAC or behind a router)                                                             |
+| 69   | device did not answer (refused, timed out, did not come back after a restart, or gave no       |
+|      | SNMP answer within 120 s, so its restart could not be confirmed)                               |
+| 75   | `print raw --verify`: the port stayed busy before the send, nothing was sent (`PortBusyError`) |
+| 76   | device answered something this firmware family does not send, stored a value other than        |
+|      | the one sent (see "Changes and restarts"), or held back an LPD acknowledgement past            |
+|      | `--timeout` (a port without a printer)                                                         |
+| 77   | refused: missing `--yes` / wrong `--confirm-name`, or the device wants a login (530) or        |
+|      | rejected the password (531)                                                                    |
+| 78   | configuration error (no `--host` and no `[device] host`, an unknown or invalid key in          |
+|      | the configuration files)                                                                       |
+| 110  | `print raw --verify`: the data was sent, the port was not read as idle (`JobNotDrainedError`)  |
 
 Each of 69 and 76 carries one exception for all its causes (`DeviceUnavailableError`,
 `DeviceResponseError`); after a 76 from a write, read the parameter back to see what the device
@@ -142,6 +144,24 @@ after the failure: if it answers, while `--timeout` was 3 s or more and `raw_por
 the device is up and the port is stuck. `reset --yes` clears it; a refused connect sent no data,
 so send the job again afterwards. A `print raw` that succeeds means the device took the data,
 never that the page printed.
+
+A plain `print raw` does not look at the port: one held by another job accepts a new job without
+complaint (measured on a PS301, firmware 6022), and a job that blocks the port afterwards goes
+unnoticed. Use `print raw 3 FILE --verify` for both instead of polling `status` yourself. It waits
+for the port the printer is routed to (`L3_PROUT`) to read `Idle`, sends, and waits again, each for
+up to `--verify-timeout` seconds (default 30, so the worst case is twice that; raise it above the
+job's duration for a long job, and `--verify-timeout` without `--verify` is a usage error).
+
+- Exit 75: the port stayed busy before the send and nothing was sent, so sending later is safe.
+- Exit 110: the data was sent, so do not resend it blindly. The port stayed busy or could not be
+  read any more. That also covers a healthy job that outlasts the timeout, or another client taking
+  the port after the last read, when this job's data still went out behind that client's. So read
+  `status` before `reset --yes`, which clears a busy port.
+- Exit 69 comes only from before or during the send: a refused connect sent nothing, while a
+  connection lost during the send may have delivered part of the job.
+
+On success the JSON answer adds `idle_port`. `Idle` means the port is free again, not that a page
+came out.
 
 ## Passwords and logins
 

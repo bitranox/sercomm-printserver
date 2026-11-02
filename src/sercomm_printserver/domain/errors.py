@@ -51,6 +51,32 @@ class DeviceUnavailableError(ConnectionError):
     """
 
 
+class JobNotDrainedError(TimeoutError):
+    """A job was sent, but the port it went to was not read as idle in time.
+
+    Distinct from :class:`DeviceUnavailableError`, which a caller can read as "nothing was sent":
+    here the device took the data, so sending it again can print it twice. The port stayed busy or
+    could not be read any more; a restart clears a busy port.
+
+    Example:
+        >>> isinstance(JobNotDrainedError("SP still Printing 30 s after the job was sent"), TimeoutError)
+        True
+    """
+
+
+class PortBusyError(TimeoutError):
+    """The port a verified print would use stayed busy, so nothing was sent.
+
+    Distinct from :class:`JobNotDrainedError`: here sending the job later is safe. A busy port
+    does not refuse a new job, it accepts it behind the one holding it (measured on a PS301,
+    FW 6022), so a verified print waits instead of adding to a port that may be stuck.
+
+    Example:
+        >>> isinstance(PortBusyError("nothing was sent: SP is still Printing after 30 s"), TimeoutError)
+        True
+    """
+
+
 class AuthenticationRequiredError(PermissionError):
     """The print server refused the operation until the right login and password are given.
 
@@ -111,6 +137,8 @@ __all__ = [
     "DeviceResponseError",
     "DeviceUnavailableError",
     "HostPrivilegeError",
+    "JobNotDrainedError",
     "NeighborTableError",
+    "PortBusyError",
     "UnverifiedAddressError",
 ]

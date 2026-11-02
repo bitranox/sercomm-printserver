@@ -155,7 +155,7 @@ takes `--network`, the `arp` commands `--mac`, `--ip` and `--interface` (`assign
 | `store-ip`                 | Store the current address as static IP (SETIP)                        |
 | `factory-default`          | Restore factory settings (stored IP 0.0.0.0 with DHCP on, name empty) |
 | `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                   |
-| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..3          |
+| `print raw PRINTER SOURCE` | Send to the RAW port of logical printer 1..3 (`--verify`)             |
 | `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`     |
 | `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there           |
 | `arp factory-reset`        | Restore factory settings of the device behind `--mac`                 |
@@ -173,10 +173,11 @@ in `adapters/cli/commands/_device.py` (first match wins, anything else exits 1).
 | 13   | `PERMISSION_DENIED`  | `HostPrivilegeError` (no right to change the ARP table), `UnverifiedAddressError` (no ARP request possible, cache knows nothing); config-deploy refusals |
 | 22   | `INVALID_ARGUMENT`   | `ValueError`, including `ConfigFormatError`; config section not found                                                                                    |
 | 69   | `DEVICE_UNAVAILABLE` | `DeviceUnavailableError`: refused, timed out, no route                                                                                                   |
+| 75   | `PORT_BUSY`          | `PortBusyError`: `print raw --verify` found the port busy until the deadline and sent nothing                                                            |
 | 76   | `PROTOCOL_ERROR`     | `DeviceResponseError`: the device answered in an unexpected form                                                                                         |
 | 77   | `REFUSED`            | `ConfirmationRequiredError`, `AuthenticationRequiredError`                                                                                               |
 | 78   | `CONFIG_ERROR`       | `ConfigurationError`: configuration missing, not loadable or invalid                                                                                     |
-| 110  | `TIMEOUT`            | Defined in the enum; no command exits with it                                                                                                            |
+| 110  | `TIMEOUT`            | `JobNotDrainedError`: `print raw --verify` sent the data and the port was not read as idle                                                               |
 | 130  | `SIGNAL_INT`         | SIGINT (translated by lib_cli_exit_tools)                                                                                                                |
 | 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                                                                       |
 | 143  | `SIGNAL_TERM`        | SIGTERM                                                                                                                                                  |
@@ -194,6 +195,14 @@ reachable (`ConfigWriteResult`).
 **Restart wait:** the device restarts about 5 s after the triggering session ends. `reset` waits
 until an SNMP uptime read afterwards is no longer than the time since the trigger, then until FTP
 answers again, for at most 120 s.
+
+**Verified RAW print:** `PrintServer.print_raw_verified` reads the printer's routing from CONFIG,
+then reads that port every second until it is idle, sends, and reads it the same way again, with
+`timeout` for each wait. An unanswered read before a deadline is ignored, and a routing the status
+does not list is refused with nothing sent. A port busy until the first deadline is
+`PortBusyError`, since a busy port would accept the job behind the one holding it. Every failure
+after the send is `JobNotDrainedError`, never `DeviceUnavailableError`, so exit 69 cannot lead a
+caller to send a job the device already has.
 
 **ARP trick:** the static neighbour entry lives only inside `borrowed_address`; the device is
 then spoken to over FTP at the borrowed address, and the entry is removed in every case.

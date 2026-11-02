@@ -58,6 +58,9 @@ class FakeDevice:
         self.config = config
         self.psinf = psinf
         self.monitor_text = monitor
+        #: Answers to the next ``monitor`` calls, oldest first, before ``monitor_text`` applies
+        #: again; an error in the list is raised, as a device that did not answer a read.
+        self.monitor_replies: list[str | DeviceUnavailableError] = []
         self.firmware = firmware
         self.login_for_writes = login_for_writes
         self.credential = ""
@@ -151,9 +154,14 @@ class FakeDevice:
     # TelnetPort -----------------------------------------------------------
 
     def monitor(self, endpoint: DeviceEndpoint) -> str:
-        """Return the monitor text."""
+        """Return the next scripted answer, else the monitor text."""
         self._check_reachable(endpoint)
-        return self.monitor_text
+        if not self.monitor_replies:
+            return self.monitor_text
+        reply = self.monitor_replies.pop(0)
+        if isinstance(reply, DeviceUnavailableError):
+            raise reply
+        return reply
 
     # LpdPort ---------------------------------------------------------------
 

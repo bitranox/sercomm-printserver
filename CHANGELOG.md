@@ -6,6 +6,17 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Added
+
+- `print raw --verify` (library: `PrintServer.print_raw_verified`) waits for the port the logical
+  printer is routed to to read `Idle`, sends, and waits again, each for up to `--verify-timeout`
+  seconds (default 30). A plain `print raw` succeeds once the device took the bytes: a port held by
+  another job accepts a new one, and a job that blocks the port afterwards goes unnoticed. A port
+  still busy before the send exits 75 with `PortBusyError`, nothing sent. After the send it exits
+  110 with `JobNotDrainedError`, which always means the data was sent; exit 69 comes only from
+  before or during the send. `Idle` means the port is free, not that a page came out. Without
+  `--verify` the command and its JSON answer are unchanged; with it the answer adds `idle_port`.
+
 ### Fixed
 
 - `notebooks/Quickstart.ipynb` installs the checkout it runs in, so CI's "Execute notebooks" job
