@@ -29,6 +29,7 @@ from .application.print_server import ConfigWriteResult, PrintServer
 from .composition import get_config, open_print_server
 from .domain.config_codec import ConfigChange, parse_config, render_config, with_value
 from .domain.config_model import DeviceConfig
+from .domain.config_types import PortId
 from .domain.device_info import DeviceInfo, MacAddress, normalise_mac
 from .domain.endpoint import DeviceEndpoint, PrintJob
 from .domain.errors import (
@@ -39,11 +40,13 @@ from .domain.errors import (
     DeviceResponseError,
     DeviceUnavailableError,
     HostPrivilegeError,
+    JobNotDrainedError,
     NeighborTableError,
+    PortBusyError,
     UnverifiedAddressError,
 )
 from .domain.neighbor import AddressHolder, LookupMethod
-from .domain.port_status import PortStatus
+from .domain.port_status import PortState, PortStatus, PortType, PrinterStatus
 
 
 def discover_print_servers(*, networks: list[str] | None = None, timeout: float = 3.0) -> DiscoveryReport:
@@ -87,12 +90,18 @@ __all__ = [
     "DiscoveryReport",
     "HostPrivilegeError",
     "IpscoutNeighborTable",
+    "JobNotDrainedError",
     "LookupMethod",
     "MacAddress",
     "NeighborTableError",
+    "PortBusyError",
+    "PortId",
+    "PortState",
     "PortStatus",
+    "PortType",
     "PrintJob",
     "PrintServer",
+    "PrinterStatus",
     "UnverifiedAddressError",
     "arp_trick",
     "discover_print_servers",

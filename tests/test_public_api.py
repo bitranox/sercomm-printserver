@@ -2,15 +2,39 @@
 
 from __future__ import annotations
 
+from enum import Enum
+
 import pytest
 
 import sercomm_printserver
+from sercomm_printserver.domain import errors
 
 
 @pytest.mark.os_agnostic
 def test_every_exported_name_resolves() -> None:
     missing = [name for name in sercomm_printserver.__all__ if not hasattr(sercomm_printserver, name)]
     assert missing == []
+
+
+@pytest.mark.os_agnostic
+def test_every_exception_the_library_raises_can_be_imported_from_the_package() -> None:
+    defined = {
+        name
+        for name, value in vars(errors).items()
+        if isinstance(value, type) and issubclass(value, Exception) and value.__module__ == errors.__name__
+    }
+
+    assert defined, "found no exceptions, so this test checked nothing"
+    assert defined - set(sercomm_printserver.__all__) == set()
+
+
+@pytest.mark.os_agnostic
+def test_every_enum_a_port_status_holds_can_be_imported_from_the_package() -> None:
+    annotations = (field.annotation for field in sercomm_printserver.PortStatus.model_fields.values())
+    held = {value.__name__ for value in annotations if isinstance(value, type) and issubclass(value, Enum)}
+
+    assert held, "found no enums, so this test checked nothing"
+    assert held - set(sercomm_printserver.__all__) == set()
 
 
 @pytest.mark.os_agnostic

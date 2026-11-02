@@ -18,6 +18,9 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
   110 with `JobNotDrainedError`, which always means the data was sent; exit 69 comes only from
   before or during the send. `Idle` means the port is free, not that a page came out. Without
   `--verify` the command and its JSON answer are unchanged; with it the answer adds `idle_port`.
+- The package root exports `PortBusyError` and `JobNotDrainedError`, and the enums a `PortStatus`
+  holds: `PortId`, `PortState`, `PortType` and `PrinterStatus`. They were importable only from
+  internal modules.
 
 ### Fixed
 
