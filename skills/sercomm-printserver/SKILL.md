@@ -1,6 +1,6 @@
 ---
 name: sercomm-printserver
-description: Use when managing, configuring or printing to a SerComm-based network print server - the Sercom PS301 and its TRENDnet (TE-310, TE100-P1P v1, TEW-P1U1P), Perle IOPRINT+, Netgear PS110/PS113 (PS101 suspected) and Linksys PPSX1/EPSX3 twins - that greets FTP with "220 Print Server Ready.": finding one on the network, reading its status, queues or CONFIG, backing up or restoring its CONFIG, changing its IP, DHCP or password, restarting it, printing by LPD or RAW, resetting it to factory settings and bringing it back afterwards, or recovering one whose address or password is lost (the vendor's "ARP trick").
+description: Use when managing, configuring or printing to a SerComm-based network print server - the Sercom PS301 and its TRENDnet (TE-310, TE100-P1P v1, TEW-P1U1P), Perle IOPRINT+, Netgear PS110/PS113 (PS101 suspected) and Linksys PPSX1/EPSX3 twins - that greets FTP with "220 Print Server Ready." - finding one on the network, reading its status, queues or CONFIG, backing up or restoring its CONFIG, changing its IP, DHCP or password, restarting it, printing by LPD or RAW, resetting it to factory settings and bringing it back afterwards, or recovering one whose address or password is lost (the vendor's "ARP trick").
 ---
 
 # sercomm-printserver
@@ -40,11 +40,11 @@ cannot.
 | LPD queue state (sends no print data) | `queue L1 --host H` (`L1` is the default; `--long` for the long form)      |
 | Whole configuration / one value       | `device-config show` / `device-config get IP_ADDR`                         |
 | Change settings                       | `device-config set DHCP_MODE=Disable IP_ADDR=192.0.2.60 --yes`             |
-| Back up / restore the configuration   | `device-config export FILE` / `device-config import FILE --yes`            |
+| Back up / restore the configuration   | `device-config export FILE` / `device-config import FILE --yes` (<=64 KiB) |
 | Restart                               | `reset --yes`                                                              |
 | Print                                 | `print lpd L1 FILE` (preferred; `-` reads stdin, `--job-name`) or          |
 |                                       | `print raw 1 FILE` (`--verify` fails if the job blocks the port)           |
-| Set the login password                | `password set --yes` (hidden prompt or `--from-file FILE`)                 |
+| Set the login password                | `password set --yes` (hidden prompt, or `--from-file FILE`: line 1 only)   |
 | Clear the login password              | `password clear --yes --confirm-name NAME`                                 |
 | Keep the current address as static    | `store-ip --yes --confirm-name NAME`                                       |
 | Factory settings (see below)          | `factory-default --yes --confirm-name NAME`                                |
@@ -54,9 +54,11 @@ cannot.
 Every device command except `discover` and `arp` (which take `--network` and `--mac`/`--ip`)
 takes `--host`, overriding `[device] host` from the configuration
 (`SERCOMM_PRINTSERVER___DEVICE__HOST` in the environment). `--timeout` (0.1-600 s) overrides
-`[device] timeout` (default 10 s). Commands that change the device (`device-config set`/`import`,
-`reset`, `check --reset`, `password`, `store-ip`, `factory-default`,
-`arp assign-ip`/`factory-reset`) exit 77 without `--yes`; `device-config set`/`import` also list
+`[device] timeout` (default 10 s), except `discover --timeout`: it leaves
+`[device] timeout` alone and sets only the wait for each host's greeting (0.1-60 s, default
+3 s). Commands that change the device (`device-config set`/`import`, `reset`, `check --reset`,
+`password`, `store-ip`, `factory-default`, `arp assign-ip`/`factory-reset`) exit 77 without
+`--yes`; `device-config set`/`import` also list
 the changes they would make. The rows
 above that show `--confirm-name` need both, the name being the device's `server_name` or
 `default_name` from `device-info`, in any case. Reading and printing need neither.
@@ -90,10 +92,15 @@ confirmation, `AuthenticationRequiredError` for a login the device wants; 13:
 |      | is the success shape (`ok`, `command`, `data`, `skipped`) with `ok` false, so read `data`      |
 | 13   | this host lacks a right: `arp` writing the ARP table or sending an ARP request to check        |
 |      | the address is free; `config-deploy` a system dir                                              |
-| 22   | invalid argument (malformed address, unknown CONFIG key, empty RAW data, `--ip` held           |
-|      | by another MAC or behind a router)                                                             |
+| 22   | invalid argument (malformed address, unknown CONFIG key, empty print data, `--ip` held         |
+|      | by another MAC or behind a router, a `device-config import` file over 64 KiB: refused before   |
+|      | the device is contacted, with or without `--yes`)                                              |
+| 65   | `print lpd`: the file changed size while it was sent (`PrintSourceChangedError`); part of      |
+|      | the job may be on paper, so do not resend it blindly                                           |
 | 69   | device did not answer (refused, timed out, did not come back after a restart, or gave no       |
-|      | SNMP answer within 120 s, so its restart could not be confirmed)                               |
+|      | SNMP answer within 120 s, so its restart could not be confirmed); no print data reached it     |
+| 74   | `print lpd -` from a pipe: it could not be spooled to a temporary file (`SpoolError`); nothing |
+|      | was sent, so sending again is safe once `TMPDIR` has room                                      |
 | 75   | `print raw --verify`: the port stayed busy before the send, nothing was sent (`PortBusyError`) |
 | 76   | device answered something this firmware family does not send, stored a value other than        |
 |      | the one sent (see "Changes and restarts"), or held back an LPD acknowledgement past            |
@@ -102,7 +109,8 @@ confirmation, `AuthenticationRequiredError` for a login the device wants; 13:
 |      | rejected the password (531)                                                                    |
 | 78   | configuration error (no `--host` and no `[device] host`, an unknown or invalid key in          |
 |      | the configuration files)                                                                       |
-| 110  | `print raw --verify`: the data was sent, the port was not read as idle (`JobNotDrainedError`)  |
+| 110  | `print raw`: the data was sent, then the connection was lost (`DeliveryUnconfirmedError`), or  |
+|      | with `--verify` the port was not read as idle (`JobNotDrainedError`); do not resend blindly    |
 
 Each of 69 and 76 carries one exception for all its causes (`DeviceUnavailableError`,
 `DeviceResponseError`); after a 76 from a write, read the parameter back to see what the device
@@ -127,13 +135,20 @@ that printer is routed, exactly like an LPD job (measured on a PS301, firmware 6
 4010/4020/4030 for the same three printers; they step by 10, so `raw_port_base` cannot express
 them. `print raw 4` and above is refused (exit 2). Prefer `print lpd`, which reaches all eight.
 
+Both `print` commands stream SOURCE in pieces, so a large job is never held in memory. LPD sends
+a job's size before its data, so `print lpd` copies data of unknown size (a pipe on `-`) to a
+temporary file in `TMPDIR` first; when that fails it exits 74 before contacting the device. A
+file that grows or shrinks while `print lpd` sends it (one still being written) exits 65: at most
+the announced bytes went out, without the end-of-file byte, but the device prints data as it
+arrives, so look at the printer's output before sending it again. Print a finished file.
+
 **Never send a test job to a port without a printer**, by RAW or LPD - no port probe that sends
 anything (`echo > /dev/tcp/H/9100` sends a newline), no empty test print. A bare connect that
 sends nothing and closes is harmless; that is what `check` does. Data that no printer takes stays
 queued: the port reads "Printing / Direct Socket" (RAW) or "Printing / OCCUPIED BY: LPD" until the
 device restarts (`reset --yes` clears it). An LPD job there is accepted, but the device holds back
-the acknowledgement of its data, so `print lpd` fails after `--timeout` with exit 76. `print raw`
-refuses empty data (exit 22).
+the acknowledgement of its data, so `print lpd` fails after `--timeout` with exit 76. Both `print`
+commands refuse empty data before contacting the device (exit 22).
 To check a port, read `status`: each port's state (`Idle` or `Printing`), its type and the
 printer status the device reports (`Offline` with no printer attached or switched off).
 Without a printer, `status` is as far as a check can go.
@@ -164,8 +179,8 @@ job's duration for a long job, and `--verify-timeout` without `--verify` is a us
   message names a wedged port or another client holding it where it could tell; otherwise run
   `check` (below) before any restart, and restart with `check --reset --yes` rather than
   `reset --yes`, so a port that is only busy is left alone.
-- Exit 69 comes only from before or during the send: a refused connect sent nothing, while a
-  connection lost during the send may have delivered part of the job.
+- Exit 69 means no print data reached the device, so a resend is safe. A connection lost after the
+  device took any byte exits 110 (`DeliveryUnconfirmedError`) instead, with or without `--verify`.
 
 On success the JSON answer adds `idle_port`. `Idle` means the port is free again, not that a page
 came out.
@@ -188,13 +203,14 @@ can. For each port reading "Printing / Direct Socket" with 0 bytes serviced, it 
 connect, with no data, to every RAW port routed there: a wedged port accepts all of them, a held
 one refuses. Each port gets a verdict: `idle`, `printing` (busy in any other way), `held`,
 `wedged`, or `unprobed` (in that state, but no RAW printer `L1`..`L3` is routed there, so nothing
-could be probed; the table shows it as `printing (unprobed)`). The JSON `data` holds each port's
-`status` and `verdict`, plus the booleans `wedged` and `restarted`. Exit 3 means a port is
-wedged, 0 that none is. `check --reset --yes` restarts the device only when a port is wedged,
-waits for it, checks again, and exits 0 only once none is; `--reset` without `--yes` exits 77. A
-restart restarts every port, a busy one too, so restart through `check --reset` and not on a
-hunch. `check` does not catch a RAW port that refuses every connect while it reads `Idle`
-(exit 69 above).
+could be probed; the table shows it as `printing (unprobed)`). The JSON `data.ports` holds each
+port's `status`, `verdict` and the RAW ports `probed`; `data` adds the booleans `wedged` and
+`restarted`, and `before`, the ports as read before a restart (empty without one). Exit 3 means
+a port is wedged, 0 that none is. `check --reset --yes` restarts the device only when a port is
+wedged, waits for it, checks again, and exits 0 only once none is; `--reset` without `--yes`
+exits 77. A restart restarts every port, a busy one too, so restart through `check --reset` and
+not on a hunch. `check` does not catch a RAW port that refuses every connect while it reads
+`Idle` (exit 69 above).
 
 ## Passwords and logins
 
@@ -290,12 +306,27 @@ that checks the address is free), root on macOS, Administrator on Windows (exit 
 ## Python
 
 ```python
-from sercomm_printserver import DeviceEndpoint, PrintJob, open_print_server
+import sys
+
+from sercomm_printserver import DeviceEndpoint, PrintData, PrintJob, open_print_server
 
 server = open_print_server(DeviceEndpoint(host="192.0.2.52"))  # login/password/timeout optional
-server.print_lpd("L1", PrintJob(data=open("page.prn", "rb").read(), name="page"))
-print(server.info().firmware_version, [p.port for p in server.status()])
+sent = server.print_lpd("L1", PrintJob(data=PrintData.from_path("/tmp/page.prn"), name="page"))
+server.print_raw(1, PrintData.from_stream(sys.stdin.buffer))  # returns the bytes sent
+print(sent, server.info().firmware_version, [(p.port, p.occupant) for p in server.status()])
 ```
+
+Give print data as `PrintData`, never as `open(...).read()`: `from_path` and `from_stream` read
+the job in pieces of at most 64 KiB when it is sent, and `PrintData.of(b"...")` (or plain bytes)
+wraps data already in memory. `from_stream` reads from the stream's current position once, so
+for a second send rewind or reopen the stream and build a new `PrintData`. Its size is
+`data.size` (None for a pipe; `len()` does not work). `print_lpd` raises `SpoolError` and
+`PrintSourceChangedError` for the 74 and 65 cases above. `print_raw_verified(n, data, timeout=30)`
+is `--verify` and returns the idle port's `PortStatus`. `PortStatus.occupant` is an `Occupant`
+(`DIRECT_SOCKET`, `LPD`, from `sercomm_printserver.domain.port_status`), or None: for a free
+port `occupied_by` is None too, for another holder it keeps the holder's name as text.
+`check()` and `reset_if_wedged()` are `check` and `check --reset --yes`; their `CheckResult` has
+`ports` (each `status`, `verdict`, `probed`), `wedged`, `restarted` and `before`.
 
 A configuration change goes through the typed model: `with_value` validates one parameter in its
 CONFIG spelling (an unknown key or a bad value raises `ConfigFormatError`), and `write_config`

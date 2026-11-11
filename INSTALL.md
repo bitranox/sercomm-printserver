@@ -4,6 +4,12 @@
 
 This guide collects every supported method to install `sercomm_printserver`, including
 isolated environments and system package managers. Pick the option that matches your workflow.
+Every method needs Python 3.10 or newer.
+
+The package declares only lower bounds (`>=`) for its dependencies, so each method below takes
+the newest release of every dependency when you run it. To skip releases younger than a few days
+(a supply-chain cooldown), use the `uv tool install --exclude-newer` command in the README section
+[Why we recommend uv](README.md#why-we-recommend-uv-supply-chain-protection).
 
 
 ## We recommend `uv` to install the package

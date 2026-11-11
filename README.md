@@ -163,12 +163,13 @@ sercomm-printserver device-info                         # PSINF: names, MAC, fir
 sercomm-printserver firmware                            # firmware version, no login needed
 sercomm-printserver status                              # port state and printer status
 sercomm-printserver check                               # wedged ports (see "A wedged port"); exit 3 on one
-sercomm-printserver queue L1 [--long]                   # LPD queue state; sends no print data
+sercomm-printserver queue L2 [--long]                   # LPD queue state (default L1); sends no print data
 ```
 
 Without `--network`, `discover` searches this host's networks up to 4096 addresses in all and
-lists the networks beyond that budget under `skipped`; a named `--network` larger than 4096
-addresses is refused (exit 22). `--timeout` is the wait for each host's greeting (default 3 s).
+lists the networks beyond that budget under `skipped`. Named networks (`--network` can be given
+more than once) that hold more than 4096 host addresses together are refused (exit 22) before
+anything is probed. `--timeout` is the wait for each host's greeting (default 3 s).
 
 ### Configuration of the device
 
@@ -187,6 +188,9 @@ SNMP agent does not answer fails after 120 s with exit 69, even though the chang
 `--no-apply` stores the change without the restart; it takes effect at the next `reset --yes`.
 `reset --no-wait` returns without waiting.
 
+`device-config import` takes a file as `device-config export` wrote it. A CONFIG is about 2 KB, so
+a file larger than 64 KiB is refused (exit 22) without being read whole.
+
 ### Restart, password, factory settings
 
 ```bash
@@ -196,6 +200,11 @@ sercomm-printserver password clear --yes --confirm-name PS_EXAMPLE
 sercomm-printserver store-ip --yes --confirm-name PS_EXAMPLE
 sercomm-printserver factory-default --yes --confirm-name PS_EXAMPLE
 ```
+
+`password set` never takes the password on the command line: it asks with a hidden prompt, or
+reads the first line of `--from-file` (only that line is read; a line ends at `\n`, `\r\n` or
+`\r`). The device stores at most 19 printable ASCII characters; anything else is refused
+(exit 22).
 
 After `factory-default` the device restarts with its stored address set to 0.0.0.0, DHCP
 switched on and its name empty. It answers wherever a DHCP server puts it (measured: the old
@@ -219,10 +228,11 @@ Only L1..L3 have a RAW port, and RAW data goes wherever that logical printer is 
 an LPD job. Data that no printer takes stays queued and keeps the port busy until a restart
 (`reset --yes`), so never send a test job, LPD or RAW, to a port without a printer. An LPD job
 there fails after `--timeout` with exit 76, because the device holds back its acknowledgement.
-`print lpd` names the job `job` unless `--job-name` says otherwise.
+`print lpd` names the job `job` unless `--job-name` says otherwise. An empty job is refused
+(exit 22) before the device is contacted.
 
-Both commands stream the data: a job of any size is read and sent in pieces of 64 KiB, so it never
-sits in memory whole. LPD puts the size in front of the data, so `print lpd` from a pipe first
+Both commands stream the data: a job of any size is read and sent in pieces of at most 64 KiB, so
+it never sits in memory whole. LPD puts the size in front of the data, so `print lpd` from a pipe first
 copies the data to a temporary file (in `TMPDIR`); when that fails, for example on a full disk,
 it exits 74 before the device is contacted. A file that grows or shrinks while `print lpd` sends
 it stops the job without its end-of-file byte and exits 65: an LPD server discards such a job, but
@@ -232,7 +242,8 @@ number of bytes sent, also for a pipe.
 `print raw` succeeds as soon as the device took the bytes, whatever the port is doing: a port held
 by another job accepts a new one, and a job that blocks the port afterwards goes unnoticed. With
 `--verify` it waits for the port the printer is routed to to read `Idle`, sends, and waits again,
-each for up to `--verify-timeout` seconds (default 30; raise it for a long job). A port still busy
+each for up to `--verify-timeout` seconds (default 30; raise it for a long job;
+`--verify-timeout` without `--verify` is a usage error). A port still busy
 before the send exits 75 with nothing sent, so sending later is safe. After the send it exits 110:
 the data was sent, so do not resend it blindly. `Idle` means the port is free again, not that a
 page came out.
@@ -255,15 +266,19 @@ job was sent while the device still passed the previous one on). Every later job
 accepted and lost. `status` cannot tell this from a client that holds the port, since an open
 connection reads the same. `check` can: it makes a bare connect, with no data, to each RAW port
 routed there. A wedged port accepts it, a held one refuses it. A port counts as wedged only if
-every such connect got in, so a live job is never reported as one.
+every such connect got in, so a live job is never reported as one. A port that reads like a wedge
+but has no RAW port routed to it (only L1..L3 have one) cannot be probed and is reported
+`unprobed`; it does not count as wedged.
 
 ```bash
-sercomm-printserver check                       # idle / printing / held / wedged per port; exit 3 on a wedge
+sercomm-printserver check                       # idle / printing / held / wedged / unprobed per port; exit 3 on a wedge
 sercomm-printserver check --reset --yes         # restart only if a port is wedged, then check again
 ```
 
 Only a restart clears a wedge, and it restarts every port, so `--reset` acts only when a port is
-wedged and exits 0 only once the check after the restart finds none. `print raw --verify` names a
+wedged and exits 0 only once the check after the restart finds none. `--reset` without `--yes` is
+refused (exit 77). With `--json`, a found wedge gives an envelope with `"ok":false` and the full
+answer under `data`. `print raw --verify` names a
 wedge, or another client, in its exit 75 and 110 messages. Not found by `check`: a RAW port that
 refuses every connect while `status` reads it idle (`print raw` reports that one when it cannot
 connect), and an idle port whose printer does not answer.
@@ -298,24 +313,22 @@ only the envelope; anything meant for a person goes to stderr. Success and failu
 A usage error (an unknown option, `print raw 4`) is reported by the command-line parser before
 any JSON is written: exit 2 and a usage message on stderr. Exit codes do not depend on the format.
 
-| Exit code | Meaning                                                                      |
-|-----------|------------------------------------------------------------------------------|
-| 0         | done                                                                         |
-| 1         | any other failure, such as an ARP table this host could not change           |
-| 2         | usage error: a missing or invalid option or argument                         |
-| 3         | `check`: a port is wedged (with `--reset`: still wedged after the restart)   |
-| 13        | this host lacks a right (`arp`: the ARP table or sending an ARP request;     |
-|           | `config-deploy`: a system dir)                                               |
-| 22        | invalid argument                                                             |
-| 65        | `print lpd`: the file changed size while it was sent; do not resend blindly  |
-| 69        | the device did not answer, or did not come back after a restart              |
-| 74        | `print lpd`: a pipe could not be spooled to `TMPDIR`, nothing was sent       |
-| 75        | `print raw --verify`: the port stayed busy before the send, nothing was sent |
-| 76        | the device answered something this firmware family does not send, or stored  |
-|           | a value other than the one sent (rare: run the command again)                |
-| 77        | refused: confirmation missing, the device wants a login, or a wrong password |
-| 78        | configuration error, such as no device address                               |
-| 110       | `print raw --verify`: the data was sent, the port was not read as idle       |
+| Exit code | Meaning                                                                                                                                   |
+|-----------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| 0         | done                                                                                                                                      |
+| 1         | any other failure, such as an ARP table this host could not change                                                                        |
+| 2         | usage error: a missing or invalid option or argument                                                                                      |
+| 3         | `check`: a port is wedged (with `--reset`: still wedged after the restart)                                                                |
+| 13        | this host lacks a right (`arp`: the ARP table or sending an ARP request; `config-deploy`: a system dir)                                   |
+| 22        | invalid argument, such as an empty print job, a password the device cannot store or a CONFIG file over 64 KiB                             |
+| 65        | `print lpd`: the file changed size while it was sent; do not resend blindly                                                               |
+| 69        | the device did not answer, or did not come back after a restart; no print data reached it, so a resend is safe                            |
+| 74        | `print lpd`: a pipe could not be spooled to `TMPDIR`, nothing was sent                                                                    |
+| 75        | `print raw --verify`: the port stayed busy before the send, nothing was sent                                                              |
+| 76        | the device answered something this firmware family does not send, or stored a value other than the one sent (rare: run the command again) |
+| 77        | refused: confirmation missing, the device wants a login, or a wrong password                                                              |
+| 78        | configuration error, such as no device address                                                                                            |
+| 110       | `print raw`: the data was sent and then the connection was lost, or (`--verify`) the port was not read as idle; do not resend blindly     |
 
 ### Python
 
@@ -339,15 +352,18 @@ sent = server.print_raw(1, PrintData.from_path("manual.pcl"))
 server.print_lpd("L2", PrintJob(data=PrintData.from_path("report.ps"), name="report"))
 ```
 
-`discover_print_servers()`, `PrintServer.read_config()`, `write_config()` and `reset()`, and
-`arp_trick` with `IpscoutNeighborTable` cover the rest.
+`PrintServer.check()` and `reset_if_wedged()` are the library side of `check` and
+`check --reset --yes`. `discover_print_servers()`, `PrintServer.read_config()`, `write_config()`
+and `reset()`, and `arp_trick` with `IpscoutNeighborTable` cover the rest. The
+[Python API reference](docs/python-api.md) describes every public name, its arguments and the
+exceptions it raises.
 
 ### Application configuration
 
 ```bash
 sercomm-printserver config                         # the merged configuration
 sercomm-printserver config --section device
-sercomm-printserver config-deploy --target user    # -> ~/.config/sercomm-printserver/config.toml
+sercomm-printserver config-deploy --target user    # Linux: ~/.config/sercomm-printserver/config.toml
 sercomm-printserver --set device.host=192.0.2.52 status
 sercomm-printserver config-generate-examples --destination ./examples   # one placeholder file per layer
 sercomm-printserver info                           # package metadata (name, version, ...)
@@ -392,6 +408,9 @@ See [CONFIG.md](CONFIG.md) for every key and its environment variable.
 - [Install Guide](INSTALL.md)
 - [Development Handbook](DEVELOPMENT.md)
 - [Contributor Guide](CONTRIBUTING.md)
+- [Configuration](CONFIG.md)
+- [Python API](docs/python-api.md) - the library reference
 - [Changelog](CHANGELOG.md)
 - [Module Reference](docs/systemdesign/module_reference.md)
+- [Device notes](docs/Manual-PS301.md) (German) and [CONFIG keys](docs/config-keys.md)
 - [License](LICENSE)

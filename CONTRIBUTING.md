@@ -30,7 +30,8 @@ Thanks for helping improve **sercomm_printserver**. The sections below summarise
 - `make test` runs Ruff (format + lint), bandit, import-linter, pip-audit, Pyright, and Pytest with coverage (all tests except those marked `integration`; CI runs all except `local_only`). See [DEVELOPMENT.md](DEVELOPMENT.md).
 - `make dev` installs the package with its dev extras (`uv pip install -e ".[dev]"`).
 - `make codecov` uploads the coverage report. For private repositories set `CODECOV_TOKEN` in your environment or `.env`.
-- Tests follow a narrative style: prefer names like `test_when_<condition>_<outcome>()`, keep each case laser-focused, and mark OS constraints with the provided markers (`@pytest.mark.os_agnostic`, `@pytest.mark.os_windows`, etc.).
+- Test names state the behaviour they pin (`test_check_reset_without_yes_exits_77_and_probes_nothing`), each test checks one behaviour, and OS constraints carry the markers from `pyproject.toml` (`os_agnostic`, `os_windows`, `os_macos`, `os_posix`, `os_linux`).
+- Protocol adapters are tested against the loopback fakes in `tests/fake_*_server.py`, use cases against the in-memory adapters (`build_testing`); the tests against a real device are opt-in (see [DEVELOPMENT.md](DEVELOPMENT.md)).
 - Whenever you add a CLI behaviour or change metadata, update the relevant story in the `tests/test_cli_*.py` files or `tests/test_metadata.py` so the specification remains complete.
 
 ## 5. Documentation Checklist
@@ -45,6 +46,11 @@ Before opening a PR, confirm the following:
 ## 6. Security & Configuration
 
 - Never commit secrets. Tokens (Codecov, PyPI) belong in `.env` (ignored by git) or CI secrets.
-- Sanitise any payloads you emit via logging once richer logging features ship.
+- Logging runs through `lib_log_rich`, whose scrubber hides the fields named in
+  `[lib_log_rich] scrub_patterns` (`password`, `secret` and `token` by default, see
+  `src/sercomm_printserver/adapters/config/defaultconfig.d/90-logging.toml`). To hide a new
+  sensitive field, add a pattern there rather than redacting at the call site.
+- Never log or print a device password, and never take one from the command line: `password set`
+  reads it from a hidden prompt or a file.
 
 Happy hacking!

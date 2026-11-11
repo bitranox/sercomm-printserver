@@ -2,13 +2,14 @@
 
 ## Status
 
-v0.2.0. Describes the modules as they are in the source tree; update it with every change that
-adds a module, a CLI command or a public name.
+Describes the modules as they are in the source tree (the version is `[project].version` in
+`pyproject.toml`); update it with every change that adds a module, a CLI command or a public name.
 
 ## Links & References
 
 **Repository:** https://github.com/bitranox/sercomm-printserver
-**Documentation:** README.md, INSTALL.md, CONFIG.md, DEVELOPMENT.md, CONTRIBUTING.md, CHANGELOG.md
+**Documentation:** README.md, INSTALL.md, CONFIG.md, DEVELOPMENT.md, CONTRIBUTING.md, CHANGELOG.md,
+docs/python-api.md (library reference)
 **Device notes:** docs/Manual-PS301.md, docs/config-keys.md, docs/adr/0001-memory-adapters-in-src.md
 **Public API:** src/sercomm_printserver/__init__.py (`__all__`; every name resolving is checked by tests/test_public_api.py)
 
@@ -54,32 +55,32 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 
 ### Domain (`src/sercomm_printserver/domain/`)
 
-| Module                | Contents                                                                              |
-|-----------------------|---------------------------------------------------------------------------------------|
-| `config_lines.py`     | `ConfigLine`, `split_lines`, `join_lines`: the `NNNN TOKEN:VALUE` line format         |
-| `config_catalogue.py` | Line numbers and tokens of the modelled CONFIG parameters                             |
-| `config_types.py`     | Value types (`Text15`, `Byte`, `BaudRate`, `Parity`, `LptMode`, ...)                  |
-| `config_model.py`     | `DeviceConfig` and its sections (`TcpIp`, `Smb`, `Snmp`, `NetWare`, ...)              |
-| `config_reader.py`    | `read_config`: lines to `DeviceConfig`                                                |
-| `config_writer.py`    | `write_config`: `DeviceConfig` back to lines                                          |
-| `config_codec.py`     | `parse_config`, `render_config`, `diff_config`, `with_value`, `ConfigChange`          |
-| `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP)    |
-| `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                         |
-| `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`              |
-| `print_data.py`       | `PrintData`, `Piece`, `PIECE_SIZE`: a job's bytes from memory, a path or a stream     |
-| `port_status.py`      | `PortStatus`, `Occupant`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`   |
-| `port_health.py`      | `PortVerdict`, `PortHealth`, `is_wedge_candidate`, `probed_verdict`: a wedged port    |
-| `link.py`             | `LinkDrain`, `link_drain_for`: how long a job takes to cross the serial link          |
-| `neighbor.py`         | `AddressHolder`, `LookupMethod`: who holds an address, asked by ARP or from the cache |
-| `enums.py`            | `OutputFormat`, `DeployTarget`                                                        |
-| `errors.py`           | The exception types (see Exit Codes)                                                  |
+| Module                | Contents                                                                                               |
+|-----------------------|--------------------------------------------------------------------------------------------------------|
+| `config_lines.py`     | `ConfigLine`, `split_lines`, `join_lines`: the `NNNN TOKEN:VALUE` line format                          |
+| `config_catalogue.py` | Line numbers and tokens of the modelled CONFIG parameters                                              |
+| `config_types.py`     | Value types (`Text15`, `Byte`, `BaudRate`, `Parity`, `LptMode`, ...)                                   |
+| `config_model.py`     | `DeviceConfig` and its sections (`TcpIp`, `Smb`, `Snmp`, `NetWare`, ...)                               |
+| `config_reader.py`    | `read_config`: lines to `DeviceConfig`                                                                 |
+| `config_writer.py`    | `write_config`: `DeviceConfig` back to lines                                                           |
+| `config_codec.py`     | `parse_config`, `render_config`, `diff_config`, `with_value`, `ConfigChange`                           |
+| `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP)                     |
+| `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                                          |
+| `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`                               |
+| `print_data.py`       | `PrintData`, `Piece`, `PIECE_SIZE`: a job's bytes from memory, a path or a stream                      |
+| `port_status.py`      | `PortStatus`, `Occupant`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`                    |
+| `port_health.py`      | `PortVerdict`, `PortHealth`, `is_wedge_candidate`, `probed_verdict`, `unprobed_verdict`: a wedged port |
+| `link.py`             | `LinkDrain`, `link_drain_for`: how long a job takes to cross the serial link                           |
+| `neighbor.py`         | `AddressHolder`, `LookupMethod`: who holds an address, asked by ARP or from the cache                  |
+| `enums.py`            | `OutputFormat`, `DeployTarget`                                                                         |
+| `errors.py`           | The exception types (see Exit Codes)                                                                   |
 
 ### Application (`src/sercomm_printserver/application/`)
 
-* `print_server.py` - `PrintServer` (firmware_version, info, status, read_config, queue_state,
-  plan_config, write_config, reset, set_password, clear_password, store_ip, factory_default,
-  print_lpd, print_raw, print_raw_verified, check, reset_if_wedged), `DevicePorts`,
-  `ConfigWriteResult`, `CheckResult`.
+* `print_server.py` - `PrintServer` (endpoint, firmware_version, info, status, read_config,
+  read_config_text, queue_state, plan_config, write_config, reset, set_password, clear_password,
+  store_ip, factory_default, print_lpd, print_raw, print_raw_verified, check, reset_if_wedged),
+  `DevicePorts`, `ConfigWriteResult`, `CheckResult`, `DEFAULT_VERIFY_TIMEOUT` (30 s).
 * `discovery.py` - `discover(scanner, networks=, timeout=)` returning `DiscoveryReport` of
   `DiscoveredDevice`; `LocalScope` (the default sweep plan the scanner port returns),
   `MAX_HOSTS`, `PRINT_SERVER_GREETING`.
@@ -104,6 +105,12 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 
 * `ftp/`, `telnet/` (`client.py`, `iac.py`), `tftp/`, `lpd/`, `raw/`, `snmp/` - one protocol
   client each; `snmp` reads `sysUpTime` through ipscout's `read_snmp_system` (SNMPv1).
+  `lpd/client.py` (`LpdClient`) spools data of unknown size to a `tempfile.TemporaryFile` before
+  the send (`SpoolError` when that fails) and raises `PrintSourceChangedError` when the data
+  delivers another byte count than announced. `raw/printer.py` exports `RawPrinter` (send with the
+  serial drain wait, `accepts_connection` for the wedge probe), `connect_retrying_refusals` and
+  `send_failure`, which reports a broken send as `DeviceUnavailableError` only while no byte was
+  taken and as `DeliveryUnconfirmedError` (exit 110) once any was.
 * `discovery/scanner.py` - `FtpBannerScanner`: FTP-port probes (ipscout's `grab_banners`, one
   connection per host), MACs and local networks, all through ipscout.
 * `neighbors/table.py` - `IpscoutNeighborTable`: static ARP entries; maps ipscout's refusal to
@@ -125,6 +132,9 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 * `composition/__init__.py` - `AppServices` (frozen container of every port), `build_production`,
   `build_testing(device=, scanner=, neighbors=)`, `open_print_server`.
 * `entry.py` - console script `sercomm-printserver` (also `sercomm_printserver`).
+* `scripts/ps301_wedge_probe.py` (outside the package) - reproduces the RAW wedge on a real
+  device, alternating trials with and without the drain wait, one JSON line per trial; it prints
+  on every trial and runs only with `--confirm-print`.
 * `__main__.py` - `python -m sercomm_printserver`.
 * `__init__conf__.py` - static package metadata and `print_info`.
 
@@ -137,33 +147,33 @@ takes `--network`, the `arp` commands `--mac`, `--ip` and `--interface` (`assign
 `--netmask`, `--gateway`). Changing commands need `--yes`, and `password clear`, `store-ip`,
 `factory-default` and `arp factory-reset` also `--confirm-name`.
 
-| Command                    | Purpose                                                               |
-|----------------------------|-----------------------------------------------------------------------|
-| `info`                     | Print package metadata                                                |
-| `config`                   | Display the merged configuration                                      |
-| `config-deploy`            | Deploy default configuration to app/host/user directories             |
-| `config-generate-examples` | Write example configuration files                                     |
-| `discover`                 | Find print servers by FTP greeting (`--network CIDR`, repeatable)     |
-| `firmware`                 | Firmware version (FTP SYST; PSINF when SYST garbles it, as on 6A10)   |
-| `device-info`              | PSINF self-description: names, MAC, firmware, addresses               |
-| `status`                   | Per-port state and printer status (Telnet monitor)                    |
-| `queue [QUEUE]`            | LPD queue state of L1..L8; sends no print data                        |
-| `device-config show`       | Show the whole CONFIG                                                 |
-| `device-config get`        | One parameter by token (`IP_ADDR`) or line number (`4000`)            |
-| `device-config set`        | Change `KEY=VALUE` parameters; shows the diff, writes with `--yes`    |
-| `device-config export`     | Save CONFIG exactly as the device sends it                            |
-| `device-config import`     | Write an exported CONFIG; shows the diff, writes with `--yes`         |
-| `reset`                    | Restart and wait until the device answers again (`--no-wait`)         |
-| `password set`             | Set the login password from `--from-file` or a hidden prompt          |
-| `password clear`           | Clear the login password (PASSRESET)                                  |
-| `store-ip`                 | Store the current address as static IP (SETIP)                        |
-| `factory-default`          | Restore factory settings (stored IP 0.0.0.0 with DHCP on, name empty) |
-| `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                   |
-| `print raw PRINTER SOURCE` | Send to the RAW port of logical printer 1..3 (`--verify`)             |
-| `check`                    | Tell wedged ports from busy ones; restart with `--reset --yes`        |
-| `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`     |
-| `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there           |
-| `arp factory-reset`        | Restore factory settings of the device behind `--mac`                 |
+| Command                    | Purpose                                                                                       |
+|----------------------------|-----------------------------------------------------------------------------------------------|
+| `info`                     | Print package metadata                                                                        |
+| `config`                   | Display the merged configuration                                                              |
+| `config-deploy`            | Deploy default configuration to app/host/user directories                                     |
+| `config-generate-examples` | Write example configuration files                                                             |
+| `discover`                 | Find print servers by FTP greeting (`--network CIDR`, repeatable)                             |
+| `firmware`                 | Firmware version (FTP SYST; PSINF when SYST garbles it, as on 6A10)                           |
+| `device-info`              | PSINF self-description: names, MAC, firmware, addresses                                       |
+| `status`                   | Per-port state and printer status (Telnet monitor)                                            |
+| `queue [QUEUE]`            | LPD queue state of L1..L8 (default L1); sends no print data                                   |
+| `device-config show`       | Show the whole CONFIG                                                                         |
+| `device-config get`        | One parameter by token (`IP_ADDR`) or line number (`4000`)                                    |
+| `device-config set`        | Change `KEY=VALUE` parameters; shows the diff, writes with `--yes`                            |
+| `device-config export`     | Save CONFIG exactly as the device sends it                                                    |
+| `device-config import`     | Write an exported CONFIG; shows the diff, writes with `--yes`                                 |
+| `reset`                    | Restart and wait until the device answers again (`--no-wait`)                                 |
+| `password set`             | Set the login password from `--from-file` or a hidden prompt                                  |
+| `password clear`           | Clear the login password (PASSRESET)                                                          |
+| `store-ip`                 | Store the current address as static IP (SETIP)                                                |
+| `factory-default`          | Restore factory settings (stored IP 0.0.0.0 with DHCP on, name empty)                         |
+| `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                                           |
+| `print raw PRINTER SOURCE` | Send a file or stdin to the RAW port of logical printer 1..3 (`--verify`, `--verify-timeout`) |
+| `check`                    | Tell wedged ports from busy ones; restart with `--reset --yes`                                |
+| `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`                             |
+| `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there                                   |
+| `arp factory-reset`        | Restore factory settings of the device behind `--mac`                                         |
 
 ## Exit Codes
 
@@ -222,7 +232,20 @@ closes about 0.07 s after EOF. Parallel and USB ports get no wait.
 **Wedge check:** `PrintServer.check` reads status and, for each port reading `Printing`, occupied by
 `Direct Socket`, 0 bytes serviced, asks `RawPort.accepts_connection` on every RAW port routed there
 (a bare connect, no data, measured safe). All accepted: `WEDGED`. Any refusal: `HELD` by a client.
-`reset_if_wedged` restarts only on a wedge and checks again. `print_raw_verified` words its busy
+A candidate with no RAW port routed to it is `UNPROBED`; other ports read `IDLE` or `PRINTING`.
+Only `WEDGED` makes `CheckResult.wedged` true (CLI exit 3). `reset_if_wedged` restarts only on a
+wedge and checks again.
+
+**Streaming print data:** `PrintData` reads its source in pieces of at most `PIECE_SIZE` (64 KiB):
+`of(bytes)`, `from_path` (size taken at creation, file re-opened on every read) or `from_stream`
+(read once; a pipe has no size). `PrintJob.data` is always a `PrintData` (bytes are wrapped). LPD
+announces the size before the data, so data of unknown size is spooled first; RAW sends the pieces
+as they are read and returns the count sent. An empty job is refused before the device is
+contacted.
+
+**Bounded operator reads:** `device-config import` reads at most `CONFIG_FILE_LIMIT` (64 KiB) plus
+one byte and refuses a larger file with `ConfigFormatError`; `password set --from-file` reads only
+the first line. `print_raw_verified` words its busy
 errors from the same verdict.
 
 **ARP trick:** the static neighbour entry lives only inside `borrowed_address`; the device is
@@ -242,8 +265,13 @@ All under `tests/`:
   modules (ftp, telnet, tftp, lpd, raw, snmp, neighbors).
 * Use cases over in-memory adapters: `test_print_server.py`, `test_discovery.py`,
   `test_arp_trick.py`, `test_config_codec.py`, `test_device_reports.py`, `test_ports.py`.
+* Streaming and the wedge: `test_print_data.py`, `test_port_status.py`, `test_port_health.py`,
+  `test_link_drain.py`, and `test_streaming_memory.py` (Linux only: peak memory of a large job
+  stays flat, measured in a child process, `streaming_memory_child.py`).
 * CLI: `test_cli_device.py`, `test_cli_arp.py`, `test_cli_exit_codes.py`,
-  `test_cli_main_exit.py`, `test_cli_core.py` and the config/override `test_cli_*.py` modules.
+  `test_cli_main_exit.py`, `test_cli_core.py`, `test_cli_bounded_reads.py` and the config/override
+  `test_cli_*.py` modules.
+* Scripts: `test_wedge_probe.py` covers `scripts/ps301_wedge_probe.py` offline.
 * Real device: `test_e2e_device.py`, marker `device` (needs `SERCOMM_E2E=1` and
   `test-device.json`); `test_e2e_printer.py`, marker `printer`, also needs
   `SERCOMM_E2E_PRINTER=1` and a `printer` section in `test-device.json`.
@@ -259,6 +287,8 @@ All under `tests/`:
 * `password clear` works without a login on firmware 6022: a password does not stop anyone on
   the network from clearing it.
 * `password set` accepts at most 19 printable ASCII characters.
+* `check` cannot see a RAW port that refuses every connect while `status` reads it idle, nor an
+  idle port whose printer does not answer.
 * The ARP trick needs the right to change this host's neighbour table (exit 13 otherwise).
 
 ## Security Considerations

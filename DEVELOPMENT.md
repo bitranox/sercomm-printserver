@@ -20,6 +20,7 @@ The targets used day to day:
   pyright and pytest with coverage (doctests included through `--doctest-modules`). It also
   raises dependency floors and applies ruff's formatting and fixes, so expect the working tree to
   change.
+- `make test-all` -- pytest and pyright on every Python version the project declares.
 - `make testintegration` (aliases `testi`, `ti`) -- the integration tests only.
 - `make bump-patch` / `bump-minor` / `bump-major` -- bump the version in `pyproject.toml`, turn
   the `[Unreleased]` section of `CHANGELOG.md` into the new version, and rewrite
@@ -72,6 +73,22 @@ run only on request, because they change the device:
 
 The suite saves the device's CONFIG to `.e2e/` before it starts and checks at the end that the
 device has it back. Never point it at a production device.
+
+### Wedge Probe
+
+`scripts/ps301_wedge_probe.py` reproduces the RAW-port wedge (see "A wedged port" in the README)
+on a real device and measures whether the serial drain wait of `print raw` prevents it. Each round
+runs one trial with the drain wait and one that closes at once, appends every trial to a JSONL
+log, and restarts the device after a wedge. The job prints on every trial, so the script refuses
+to start without `--confirm-print`; the query must be bytes the printer answers without printing.
+
+```bash
+.venv/bin/python scripts/ps301_wedge_probe.py --host 192.0.2.52 --printer 3 \
+    --job label.dpl --query status.bin --log /tmp/wedge.jsonl --rounds 3 --confirm-print
+```
+
+`.venv/bin/python scripts/ps301_wedge_probe.py --help` lists every option. Its logic is tested
+offline in `tests/test_wedge_probe.py`.
 
 ## Versioning & Metadata
 
