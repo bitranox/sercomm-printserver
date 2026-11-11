@@ -8,7 +8,12 @@ import pytest
 
 from sercomm_printserver.adapters import cli as cli_mod
 from sercomm_printserver.adapters.cli.commands._device import exit_code_for
-from sercomm_printserver.domain.errors import PrintSourceChangedError, SpoolError
+from sercomm_printserver.domain.errors import (
+    DeliveryUnconfirmedError,
+    DeviceUnavailableError,
+    PrintSourceChangedError,
+    SpoolError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -96,4 +101,19 @@ def test_when_config_deploy_has_generic_error_it_exits_with_code_1(
     ],
 )
 def test_a_local_print_data_failure_has_its_own_exit_code(error: Exception, code: int) -> None:
+    assert exit_code_for(error).value == code
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        # Nothing was sent: a script may resend the job.
+        (DeviceUnavailableError("192.0.2.52:9100 refused every connection"), 69),
+        # The device took data and the connection broke: a resend can print the job twice, so it
+        # shares 110 with every other failure after a verified print's send.
+        (DeliveryUnconfirmedError("192.0.2.52:9100 broke the connection after 1024 of 4096 bytes"), 110),
+    ],
+)
+def test_exit_69_is_kept_for_a_job_nothing_of_which_was_sent(error: Exception, code: int) -> None:
     assert exit_code_for(error).value == code

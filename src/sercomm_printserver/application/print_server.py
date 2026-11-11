@@ -310,6 +310,19 @@ class PrintServer:
 
         Data of unknown size (a pipe) is spooled to a temporary file first, because LPD sends the
         size ahead of the data.
+
+        Raises:
+            ValueError: ``queue`` is not a valid queue name, the job has no data, or its job
+                number is outside 0-999; nothing was sent.
+            SpoolError: Data of unknown size could not be copied to a temporary file; nothing
+                was sent.
+            PrintSourceChangedError: The data delivered more or fewer bytes than its size
+                announced; the job was left unterminated, but part of it may be on paper.
+            DeviceUnavailableError: The device could not be reached or did not answer the
+                receive-job command; no print data was sent.
+            DeviceResponseError: A step was refused, or the device broke off or stayed silent
+                after it had answered, so print data may have been sent.
+            OSError: Reading the data failed (a file or stream error, raised as it is).
         """
         return self._ports.lpd.submit(self._endpoint, queue, job)
 
@@ -332,6 +345,21 @@ class PrintServer:
 
         Returns:
             The number of bytes sent.
+
+        Raises:
+            ValueError: The data is empty or the printer has no RAW port (both before the
+                device is contacted), or the configuration read is not one this family uses
+                (``ConfigFormatError``); nothing was sent.
+            AuthenticationRequiredError: The configuration read was refused for a missing or
+                wrong login; nothing was sent.
+            DeviceResponseError: The configuration read got an unexpected reply; nothing was
+                sent.
+            DeviceUnavailableError: Nothing was sent: the device could not be reached for the
+                configuration or on the RAW port, or broke the connection before the socket
+                took a byte.
+            DeliveryUnconfirmedError: The connection broke after the device took data; a
+                resend can print the job twice.
+            OSError: Reading the data failed (a file or stream error, raised as it is).
         """
         job = self._raw_job(data)
         port = self._raw_port(logical_printer)
@@ -362,7 +390,10 @@ class PrintServer:
             DeviceResponseError: The printer is routed to a port the status does not list.
             PortBusyError: The port stayed busy before the send; nothing was sent.
             JobNotDrainedError: The data was sent and the port stayed busy or could not be read.
-            DeviceUnavailableError: The device failed before or during the send, never after it.
+            DeliveryUnconfirmedError: The connection broke during the send, after the device
+                took data.
+            DeviceUnavailableError: Nothing was sent: the device failed before the send, or the
+                send failed before the socket took a byte; never after that.
         """
         job = self._raw_job(data)
         port = self._raw_port(logical_printer)
@@ -379,6 +410,8 @@ class PrintServer:
             raise PortBusyError(
                 f"{host}: nothing was sent, {_busy_reason(busy, f'after {timeout:g} s', stuck='a stuck port')}"
             )
+        # The send itself keeps that rule: once the socket took a byte, a broken connection is a
+        # DeliveryUnconfirmedError, never a DeviceUnavailableError.
         self._send_raw(config, logical_printer, port, job)
         # The data is sent from here on, so no failure may be a DeviceUnavailableError: a caller
         # reads that as unsent, and a resend prints the job twice. The probe a wedge check makes

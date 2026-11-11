@@ -35,7 +35,7 @@ import socket
 import time
 from typing import TYPE_CHECKING, Final
 
-from ...domain.errors import DeviceUnavailableError
+from ...domain.errors import DeliveryUnconfirmedError, DeviceUnavailableError
 from ...domain.print_data import PrintData
 
 if TYPE_CHECKING:
@@ -159,8 +159,10 @@ def _transmit(
     """Send every piece, counting the bytes so a broken connection says how far the job got.
 
     ``sendall`` would hide that count, which is what tells the caller whether a partial job
-    may already be on paper. Only the socket's errors are the device's: a piece that fails to
-    be READ (a failing disk) propagates as the error it is.
+    may already be on paper: once the socket took a byte the failure is a
+    ``DeliveryUnconfirmedError``, before that a ``DeviceUnavailableError`` (nothing was sent).
+    Only the socket's errors are the device's: a piece that fails to be READ (a failing disk)
+    propagates as the error it is.
     """
     sent = 0
     for piece in pieces:
@@ -170,21 +172,56 @@ def _transmit(
             try:
                 taken = sock.send(view[offset:])
             except OSError as exc:
-                progress = f"{sent} of {total} bytes" if total is not None else f"{sent} bytes of a job of unknown size"
-                raise DeviceUnavailableError(
-                    f"{address} broke the connection after {progress} were sent: {exc}"
-                ) from exc
+                raise send_failure(address, sent=sent, total=total, cause=exc) from exc
             offset += taken
             sent += taken
             carried.note(taken)
     return sent
 
 
+def send_failure(
+    address: str, *, sent: int, total: int | None, cause: OSError
+) -> DeviceUnavailableError | DeliveryUnconfirmedError:
+    """Return the error for a send that broke after the socket took ``sent`` bytes.
+
+    Only a send that broke before the socket took a byte is a ``DeviceUnavailableError``, which
+    a caller reads as "nothing was sent" and may resend; after that it is a
+    ``DeliveryUnconfirmedError``, because this device prints data as it arrives.
+
+    Args:
+        address: ``host:port`` of the RAW port, for the message.
+        sent: Bytes the socket had taken when the send broke.
+        total: The job's size, or None for a stream that could not tell it.
+        cause: The socket error that broke the send.
+
+    Returns:
+        The error to raise from ``cause``.
+
+    Example:
+        >>> type(send_failure("192.0.2.52:9100", sent=0, total=4, cause=ConnectionResetError())).__name__
+        'DeviceUnavailableError'
+        >>> type(send_failure("192.0.2.52:9100", sent=1, total=4, cause=ConnectionResetError())).__name__
+        'DeliveryUnconfirmedError'
+    """
+    progress = f"{sent} of {total} bytes" if total is not None else f"{sent} bytes of a job of unknown size"
+    if sent == 0:
+        return DeviceUnavailableError(f"{address} broke the connection after {progress} were sent: {cause}")
+    return DeliveryUnconfirmedError(
+        f"{address} broke the connection after {progress} were sent; part of the job may be on paper, "
+        f"{_NO_BLIND_RESEND} ({cause})"
+    )
+
+
+#: Why a failure after the device took data is not reported as unavailable.
+_NO_BLIND_RESEND: Final = "do not resend it blindly, a resend can print it twice"
+
+
 def _finish(sock: socket.socket, *, address: str, total: int) -> None:
     """Half-close, then wait for the device's close so the job ends cleanly.
 
     A reset at this point means the device dropped the connection before it read the whole
-    stream, so delivery cannot be confirmed and it is reported.
+    stream, so delivery cannot be confirmed and it is reported - as a
+    ``DeliveryUnconfirmedError``, since every byte had already been sent.
     """
     received = 0
     try:
@@ -197,8 +234,9 @@ def _finish(sock: socket.socket, *, address: str, total: int) -> None:
     except TimeoutError:
         return
     except OSError as exc:
-        raise DeviceUnavailableError(
-            f"{address} broke the connection after all {total} bytes were sent; delivery is unconfirmed: {exc}"
+        raise DeliveryUnconfirmedError(
+            f"{address} broke the connection after all {total} bytes were sent; delivery is unconfirmed, "
+            f"{_NO_BLIND_RESEND} ({exc})"
         ) from exc
 
 
@@ -246,9 +284,12 @@ class RawPrinter:
 
         Raises:
             ValueError: ``data`` is empty or ``port`` is outside 1..65535; nothing is sent.
-            DeviceUnavailableError: The device could not be reached, or refused every connect
-                for the whole retry window (the message then points at a restart), or broke the
-                connection; the message says how many bytes were sent.
+            DeviceUnavailableError: Nothing was sent: the device could not be reached, refused
+                every connect for the whole retry window (the message then points at a restart),
+                or broke the connection before the socket took a byte.
+            DeliveryUnconfirmedError: The connection broke after the socket took data, during
+                the send or while waiting for the device's close; the message says how many
+                bytes were sent. A resend can print the job twice.
             OSError: Reading the data failed (a file or stream error, raised as it is).
         """
         job = data if isinstance(data, PrintData) else PrintData.of(data)
@@ -305,4 +346,4 @@ class RawPrinter:
         return True
 
 
-__all__ = ["RawPrinter", "connect_retrying_refusals"]
+__all__ = ["RawPrinter", "connect_retrying_refusals", "send_failure"]

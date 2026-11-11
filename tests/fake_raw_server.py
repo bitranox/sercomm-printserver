@@ -1,9 +1,9 @@
 """A loopback RAW / direct-socket print port, for adapter tests.
 
 It records every byte until the client half-closes, optionally answers, then closes, as a print server's RAW port
-does at the end of a job. Other behaviours reproduce a reset mid-stream and a device that never
-closes its side. Waiting is done with ``select`` on the connection plus a wake-up socket, so no
-test sleeps.
+does at the end of a job. Other behaviours reproduce a reset mid-stream, a reset after the whole
+job arrived, and a device that never closes its side. Waiting is done with ``select`` on the
+connection plus a wake-up socket, so no test sleeps.
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ class RawBehaviour(Enum):
 
     CLOSE_AT_EOF = "close-at-eof"
     RESET_MID_STREAM = "reset-mid-stream"
+    #: Read the whole job up to the client's half-close, then reset instead of closing.
+    RESET_AT_EOF = "reset-at-eof"
     NEVER_CLOSE = "never-close"
 
 
@@ -77,6 +79,9 @@ class FakeRawServer:
             conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
             return
         self._read_until(conn, None)
+        if self._behaviour is RawBehaviour.RESET_AT_EOF:
+            conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            return
         self._send_reply(conn)
         if self._behaviour is RawBehaviour.NEVER_CLOSE:
             select.select([self._wake_reader], [], [], _GUARD_SECONDS)

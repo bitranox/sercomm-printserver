@@ -29,7 +29,7 @@ class ExitCode(IntEnum):
     * 22: EINVAL
     * 65: EX_DATAERR (sysexits.h): the file being printed changed size while it was sent;
       part of the job may be on paper
-    * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer
+    * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer; nothing was sent
     * 74: EX_IOERR (sysexits.h): print data of unknown size could not be spooled to a
       temporary file; nothing was sent
     * 75: EX_TEMPFAIL (sysexits.h): ``print raw --verify`` found the port busy and sent nothing
@@ -37,7 +37,9 @@ class ExitCode(IntEnum):
     * 77: EX_NOPERM (sysexits.h): refused by policy, such as a destructive action
       without its confirmation flags
     * 78: EX_CONFIG (sysexits.h)
-    * 110: ETIMEDOUT: ``print raw --verify`` sent the data and the port was not read as idle
+    * 110: ETIMEDOUT: the data was sent but not confirmed: ``print raw`` lost the connection
+      after the device took data, or ``print raw --verify`` sent it and the port was not
+      read as idle; do not resend blindly
     * 128+N: signal N (informational only)
 
     Example:

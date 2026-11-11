@@ -59,6 +59,13 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ### Fixed
 
+- Exit 69 (`DeviceUnavailableError`) now strictly means nothing was sent, so a script can resend
+  on it without printing a job twice. `print raw` (library: `PrintServer.print_raw` and the send
+  step of `print_raw_verified`) used to exit 69 also when the connection broke after the device
+  had taken data, or after every byte was sent and before the device closed. Those cases now
+  raise the new `DeliveryUnconfirmedError` (exported from the package root; a `ConnectionError`,
+  not a `DeviceUnavailableError`) and exit 110, the code `print raw --verify` already uses for a
+  failure after the send; the message says how many bytes were sent and not to resend blindly.
 - `display_config` takes its `output_format` as the plain value too (`"json"`), as an untyped caller passes it, instead of failing with `AttributeError: 'str' object has no attribute 'value'`.
 
 ## [0.3.0] - 2026-11-02

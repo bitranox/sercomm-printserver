@@ -98,6 +98,9 @@ def reach(
         ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
         UnverifiedAddressError: Nothing shows ``ip`` is free: no ARP request could be sent and
             this host's cache does not know the address.
+        ConfirmationRequiredError: The device at the borrowed address calls itself by a
+            default name that does not match ``mac``.
+        DeviceResponseError: The device's information is not in the form this family uses.
     """
     device_mac = normalise_mac(mac)
     with borrowed_address(table, ip=ip, mac=device_mac):
@@ -123,8 +126,10 @@ def assign_ip(
     Raises:
         ConfigFormatError: The device's firmware has no DHCP switch (6A10), so its address
             cannot be made static here.
-        DeviceResponseError: The device behind the MAC is not one of this family, or stored
-            something else than was written.
+        ConfirmationRequiredError: The device at the borrowed address calls itself by a
+            default name that does not match ``mac``; nothing was changed.
+        DeviceResponseError: The device's information is not in the form this family uses, or
+            it stored something else than was written.
         ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
         UnverifiedAddressError: Nothing shows ``ip`` is free: no ARP request could be sent and
             this host's cache does not know the address.
@@ -154,7 +159,8 @@ def factory_reset(
 
     Raises:
         ConfirmationRequiredError: ``confirm_name`` is not the device's default name derived
-            from ``mac``.
+            from ``mac``, or the device at the borrowed address calls itself by a default name
+            that does not match ``mac``; nothing was changed.
         ValueError: ``mac`` is not a MAC address, or something else holds ``ip``.
         UnverifiedAddressError: Nothing shows ``ip`` is free: no ARP request could be sent and
             this host's cache does not know the address.

@@ -166,7 +166,9 @@ class RawPort(Protocol):
     ) -> int:
         """Connect to ``port``, send ``data`` piece by piece, keep it open for ``drain``, close.
 
-        Returns the number of bytes sent, which is the only size a pipe has.
+        Returns the number of bytes sent, which is the only size a pipe has. A failure before
+        the socket took a byte is a ``DeviceUnavailableError`` (nothing was sent); one after it
+        is a ``DeliveryUnconfirmedError``, since a resend can print the job twice.
         """
         ...
 

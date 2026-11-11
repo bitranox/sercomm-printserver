@@ -51,10 +51,25 @@ class DeviceUnavailableError(ConnectionError):
     """
 
 
+class DeliveryUnconfirmedError(ConnectionError):
+    """The connection broke after the device took data, so whether the job arrived is unknown.
+
+    A sibling of :class:`DeviceUnavailableError`, never a subclass: a caller reads that one as
+    "nothing was sent" and may resend, while here this device may already be printing what it
+    took, and a resend can print the job twice. The message says how many bytes were sent.
+
+    Example:
+        >>> error = DeliveryUnconfirmedError("192.0.2.52:9100 broke the connection after 1024 of 4096 bytes")
+        >>> isinstance(error, ConnectionError), isinstance(error, DeviceUnavailableError)
+        (True, False)
+    """
+
+
 class JobNotDrainedError(TimeoutError):
     """A job was sent, but the port it went to was not read as idle in time.
 
-    Distinct from :class:`DeviceUnavailableError`, which a caller can read as "nothing was sent":
+    Distinct from :class:`DeviceUnavailableError`, which a caller can read as "nothing was sent",
+    and from :class:`DeliveryUnconfirmedError`, where the connection broke during the send:
     here the device took the data, so sending it again can print it twice. The port stayed busy or
     could not be read any more; a restart clears a busy port.
 
@@ -162,6 +177,7 @@ __all__ = [
     "ConfigFormatError",
     "ConfigurationError",
     "ConfirmationRequiredError",
+    "DeliveryUnconfirmedError",
     "DeviceResponseError",
     "DeviceUnavailableError",
     "HostPrivilegeError",

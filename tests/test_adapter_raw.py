@@ -16,8 +16,9 @@ from fake_raw_server import FakeRawServer, RawBehaviour
 from print_sources import pipe_with
 
 from sercomm_printserver.adapters.raw import RawPrinter
+from sercomm_printserver.adapters.raw.printer import send_failure
 from sercomm_printserver.domain.endpoint import DeviceEndpoint
-from sercomm_printserver.domain.errors import DeviceUnavailableError
+from sercomm_printserver.domain.errors import DeliveryUnconfirmedError, DeviceUnavailableError
 from sercomm_printserver.domain.link import DRAIN_MARGIN_SECONDS, LinkDrain
 from sercomm_printserver.domain.print_data import PrintData
 
@@ -101,17 +102,54 @@ def test_the_wait_for_the_close_stops_at_the_drain_cap() -> None:
     assert elapsed < 9.0
 
 
-def test_a_reset_mid_stream_is_unavailable_and_says_how_far_the_job_got() -> None:
+def test_a_reset_after_the_device_took_data_is_unconfirmed_not_unavailable() -> None:
+    # Exit 69 (DeviceUnavailableError) tells a script nothing was sent, so it may resend. Here
+    # the device took at least 1024 bytes, which this device prints as they arrive.
     big_job = _JOB * 32  # 8 MiB: more than the loopback buffers hold, so the reset meets a send
     with (
         FakeRawServer(behaviour=RawBehaviour.RESET_MID_STREAM, reset_after=1024) as server,
-        pytest.raises(DeviceUnavailableError, match=r"broke the connection after .*bytes were sent") as caught,
+        pytest.raises(DeliveryUnconfirmedError, match=r"broke the connection after .*bytes were sent") as caught,
     ):
         RawPrinter().send(_endpoint(), server.port, big_job)
 
+    assert not isinstance(caught.value, DeviceUnavailableError)
     assert f"127.0.0.1:{server.port}" in str(caught.value)
+    assert re.search(rf"after (\d+) of {len(big_job)} bytes", str(caught.value))
+    assert "do not resend it blindly" in str(caught.value)
     assert len(server.received) >= 1024
     assert big_job.startswith(bytes(server.received))
+
+
+def test_a_reset_after_the_whole_job_arrived_is_unconfirmed_not_unavailable() -> None:
+    with (
+        FakeRawServer(behaviour=RawBehaviour.RESET_AT_EOF) as server,
+        pytest.raises(DeliveryUnconfirmedError, match=r"after all 3 bytes were sent") as caught,
+    ):
+        RawPrinter().send(_endpoint(), server.port, b"job")
+
+    assert not isinstance(caught.value, DeviceUnavailableError)
+    assert "do not resend it blindly" in str(caught.value)
+    assert server.received == b"job"
+
+
+# A reset before the socket took the first byte cannot be staged through a loopback server: the
+# client's first send reaches the kernel before the server's reset does. So the rule the send loop
+# applies is checked on its own, at the boundary.
+
+
+def test_a_send_broken_before_the_socket_took_a_byte_is_unavailable() -> None:
+    error = send_failure("127.0.0.1:9100", sent=0, total=3, cause=ConnectionResetError("reset"))
+
+    assert type(error) is DeviceUnavailableError
+    assert str(error) == "127.0.0.1:9100 broke the connection after 0 of 3 bytes were sent: reset"
+
+
+@pytest.mark.parametrize("total", [3, None])
+def test_a_send_broken_after_one_byte_is_unconfirmed(total: int | None) -> None:
+    error = send_failure("127.0.0.1:9100", sent=1, total=total, cause=ConnectionResetError("reset"))
+
+    assert type(error) is DeliveryUnconfirmedError
+    assert "do not resend it blindly" in str(error)
 
 
 def test_a_refused_connection_is_unavailable_and_names_the_address() -> None:
@@ -242,7 +280,7 @@ def test_a_failed_send_does_not_wait_for_a_drain() -> None:
     big_job = _JOB * 32
     with FakeRawServer(behaviour=RawBehaviour.RESET_MID_STREAM, reset_after=1024) as server:
         sleep = _RecordingSleep(server)
-        with pytest.raises(DeviceUnavailableError):
+        with pytest.raises(DeliveryUnconfirmedError):
             RawPrinter(sleep=sleep, clock=_FrozenClock()).send(
                 _endpoint(), server.port, big_job, drain=LinkDrain(bytes_per_second=960.0)
             )
@@ -371,7 +409,7 @@ def test_a_reset_mid_stream_of_a_pipe_says_the_total_is_unknown() -> None:
     with (
         FakeRawServer(behaviour=RawBehaviour.RESET_MID_STREAM, reset_after=1024) as server,
         pipe_with(_JOB * 32) as reader,
-        pytest.raises(DeviceUnavailableError, match=r"after \d+ bytes of a job of unknown size were sent"),
+        pytest.raises(DeliveryUnconfirmedError, match=r"after \d+ bytes of a job of unknown size were sent"),
     ):
         RawPrinter().send(_endpoint(), server.port, PrintData.from_stream(reader))
 
