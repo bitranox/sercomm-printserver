@@ -446,8 +446,10 @@ def cli_password_clear(
 
 def _new_password(from_file: Path | None) -> SecretStr:
     if from_file is not None:
-        lines = from_file.read_text(encoding="utf-8").splitlines()
-        return SecretStr(lines[0] if lines else "")
+        # Only the first line is the password, so only it is read: a file given by mistake (a
+        # print job, a log) is not pulled into memory whole. Text mode maps \r\n and \r to \n.
+        with from_file.open(encoding="utf-8") as source:
+            return SecretStr(source.readline().rstrip("\n"))
     if not sys.stdin.isatty():
         raise ValueError("no terminal to ask for the new password; use --from-file")
     entered: str = click.prompt("New password", hide_input=True, confirmation_prompt=True, err=True)

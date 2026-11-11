@@ -79,7 +79,6 @@ def validate_profile(profile: str, max_length: int | None = None) -> None:
         raise ValueError(str(exc)) from exc
 
 
-@lru_cache(maxsize=1)
 def get_default_config_path() -> Path:
     """Return the path to the bundled default configuration file.
 
@@ -90,9 +89,6 @@ def get_default_config_path() -> Path:
 
     Returns:
         Absolute path to defaultconfig.toml.
-
-    Note:
-        This function is cached since the path never changes during runtime.
 
     Example:
         >>> path = get_default_config_path()

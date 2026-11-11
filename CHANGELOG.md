@@ -51,6 +51,11 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 - The empty-data refusal of `print raw` now reads "an empty job can leave the RAW port blocked
   for minutes": a bare connect with no data was measured harmless.
 - `sercomm_printserver.adapters.raw` exports `connect_retrying_refusals`.
+- `device-config import` refuses a file larger than 64 KiB with exit 22 (`ConfigFormatError`)
+  without reading it whole; a CONFIG the device exports is about 2 KB.
+- `password set --from-file` reads only the file's first line. A line still ends at `\n`, `\r\n`
+  or `\r`; the rarer separators `str.splitlines` also split on (vertical tab, form feed, U+2028
+  and similar) are now part of the password.
 
 ### Fixed
 

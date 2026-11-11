@@ -25,6 +25,8 @@ _SERCOMM_OUI: Final = "00:c0:02"
 _MAC: Final = re.compile(
     r"[0-9a-f]{2}([:-]?)(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}", re.ASCII | re.IGNORECASE
 )
+#: The separators :data:`_MAC` accepts, dropped before the address is regrouped.
+_MAC_SEPARATORS: Final = re.compile(r"[:.-]")
 #: The type behind :data:`MacAddress`; only :func:`normalise_mac` makes one.
 _NormalisedMac = NewType("_NormalisedMac", str)
 _SYST_REPLY: Final = re.compile(r"215 Print Server FW (?P<version>.*)")
@@ -46,7 +48,7 @@ def normalise_mac(mac: str) -> MacAddress:
     text = mac.strip()
     if _MAC.fullmatch(text) is None:
         raise ValueError(f"{mac!r} is not a MAC address")
-    digits = re.sub(r"[:.-]", "", text).lower()
+    digits = _MAC_SEPARATORS.sub("", text).lower()
     return _NormalisedMac(":".join(digits[index : index + 2] for index in range(0, 12, 2)))
 
 

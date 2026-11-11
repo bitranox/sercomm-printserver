@@ -9,7 +9,7 @@ The app's own settings are the separate ``config`` command.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import rich_click as click
 from pydantic import BaseModel, SerializerFunctionWrapHandler, model_serializer
@@ -17,11 +17,16 @@ from pydantic import BaseModel, SerializerFunctionWrapHandler, model_serializer
 from sercomm_printserver.application.print_server import ConfigWriteResult
 from sercomm_printserver.domain.config_codec import find_line, parse_config, with_value
 from sercomm_printserver.domain.config_model import DeviceConfig
-from sercomm_printserver.domain.errors import ConfirmationRequiredError
+from sercomm_printserver.domain.errors import ConfigFormatError, ConfirmationRequiredError
 
 from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import argument, option
 from ._device import DeviceFlags, device_options, run_device_command
+
+#: The largest file ``device-config import`` reads. A CONFIG the device exports is about 2 KB, so
+#: a file past this is not one, and refusing it keeps an operator's mistake (a print job, a disk
+#: image) from being read into memory whole.
+CONFIG_FILE_LIMIT: Final = 64 * 1024
 
 if TYPE_CHECKING:
     from sercomm_printserver.application.print_server import PrintServer
@@ -209,7 +214,7 @@ def cli_device_config_import(
     """Write a CONFIG file (as exported) to the device. Shows the diff; writes with --yes."""
 
     def work(server: PrintServer) -> ChangeReport:
-        new = parse_config(path.read_text(encoding="ascii"))
+        new = parse_config(_read_config_file(path))
         return _write(server, new, yes=yes, apply=not no_apply)
 
     run_device_command(
@@ -219,6 +224,23 @@ def cli_device_config_import(
         work=work,
         human=_render,
     )
+
+
+def _read_config_file(path: Path) -> str:
+    """Return the text of an exported CONFIG file, reading at most one byte past the limit.
+
+    Raises:
+        ConfigFormatError: The file is larger than :data:`CONFIG_FILE_LIMIT`.
+        UnicodeDecodeError: The file is not ASCII, as a CONFIG always is.
+    """
+    with path.open(encoding="ascii") as source:
+        text = source.read(CONFIG_FILE_LIMIT + 1)
+    if len(text) > CONFIG_FILE_LIMIT:
+        raise ConfigFormatError(
+            f"{path} is larger than {CONFIG_FILE_LIMIT} bytes; a CONFIG the device exports is about 2 KB, "
+            "so this is not one"
+        )
+    return text
 
 
 def _write(server: PrintServer, new: DeviceConfig, *, yes: bool, apply: bool) -> ChangeReport:

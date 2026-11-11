@@ -23,7 +23,7 @@ import re
 import secrets
 import socket
 import tempfile
-from typing import IO, TYPE_CHECKING, Final
+from typing import IO, TYPE_CHECKING, Final, NamedTuple
 
 from ...domain.errors import DeviceResponseError, DeviceUnavailableError, PrintSourceChangedError, SpoolError
 from ...domain.print_data import PrintData
@@ -136,15 +136,18 @@ class _LpdConnection:
         except OSError as exc:
             raise self._lost(step, f"{exc} while sending") from exc
 
-    def expect_ack(self, step: str) -> None:
+    def expect_ack(self, step: str, *, stall_hint: str = "") -> None:
         """Read the one-byte acknowledgement of ``step``.
+
+        ``stall_hint`` is appended to the message when the device stays silent with the
+        connection open; it names what the device is known to wait for at that step.
 
         Raises:
             DeviceUnavailableError: No byte arrived before the device had answered anything.
             DeviceResponseError: The acknowledgement is not 0x00, or the connection ended after
                 an earlier answer.
         """
-        reply = self._recv(1, step=step)
+        reply = self._recv(1, step=step, stall_hint=stall_hint)
         if not reply:
             raise self._lost(step, "connection closed")
         self._answered = True
@@ -166,17 +169,16 @@ class _LpdConnection:
                 raise DeviceResponseError(f"{self._address} sent more than {_STATE_CAP} bytes for the {step}")
         return bytes(received)
 
-    def _recv(self, size: int, *, step: str) -> bytes:
+    def _recv(self, size: int, *, step: str, stall_hint: str = "") -> bytes:
         try:
             return self._sock.recv(size)
         except TimeoutError as exc:
             if not self._answered:
                 raise self._lost(step, f"{exc} while waiting for the reply") from exc
-            # Nothing broke: the connection is open and the device is just not answering. Measured
-            # on a PS301, it holds back the data file's acknowledgement while no printer takes it.
-            hint = "; the print server holds it back while no printer takes the data" if step == "data file" else ""
+            # Nothing broke: the connection is open and the device is just not answering; the
+            # caller's hint says what the device waits for at this step (see _DATA_FILE_STALL).
             raise DeviceResponseError(
-                f"{self._address} sent no acknowledgement of the {step} within {self._timeout:g} s{hint}"
+                f"{self._address} sent no acknowledgement of the {step} within {self._timeout:g} s{stall_hint}"
             ) from exc
         except OSError as exc:
             raise self._lost(step, f"{exc} while waiting for the reply") from exc
@@ -187,7 +189,25 @@ class _LpdConnection:
         return DeviceUnavailableError(f"{self._address} did not answer the {step}: {detail}")
 
 
-def _send_file(conn: _LpdConnection, *, subcommand: bytes, name: str, content: PrintData, label: str) -> int:
+#: Measured on a PS301: it holds back the data file's acknowledgement while no printer takes the
+#: data, so a silent device at that step is a printer problem, not a network one.
+_DATA_FILE_STALL: Final = "; the print server holds it back while no printer takes the data"
+
+
+class _JobFile(NamedTuple):
+    """One of the two files an LPD job is made of, as RFC 1179 numbers them."""
+
+    subcommand: bytes
+    label: str
+    #: Appended when the device stays silent after the file's end; empty when nothing is known.
+    stall_hint: str
+
+
+_DATA_FILE: Final = _JobFile(b"\x03", "data file", _DATA_FILE_STALL)
+_CONTROL_FILE: Final = _JobFile(b"\x02", "control file", "")
+
+
+def _send_file(conn: _LpdConnection, *, kind: _JobFile, name: str, content: PrintData) -> int:
     """Send one file of a job: header line, ack, content, the 0x00 terminator, ack; return its size.
 
     The header announces ``content.size``. When the pieces deliver more or fewer bytes, at most
@@ -199,12 +219,12 @@ def _send_file(conn: _LpdConnection, *, subcommand: bytes, name: str, content: P
     """
     announced = content.size
     if announced is None:
-        raise ValueError(f"the {label} needs a known size; spool data of unknown size first")
-    conn.send(subcommand + f"{announced} {name}\n".encode("ascii"), step=f"{label} header")
-    conn.expect_ack(f"{label} header")
-    sent = _send_content(conn, content, announced=announced, label=label)
-    conn.send(b"\x00", step=label)
-    conn.expect_ack(label)
+        raise ValueError(f"the {kind.label} needs a known size; spool data of unknown size first")
+    conn.send(kind.subcommand + f"{announced} {name}\n".encode("ascii"), step=f"{kind.label} header")
+    conn.expect_ack(f"{kind.label} header")
+    sent = _send_content(conn, content, announced=announced, label=kind.label)
+    conn.send(b"\x00", step=kind.label)
+    conn.expect_ack(kind.label, stall_hint=kind.stall_hint)
     return sent
 
 
@@ -367,10 +387,8 @@ class LpdClient:
             with _LpdConnection(endpoint) as conn:
                 conn.send(b"\x02" + queue_name + b"\n", step="receive-job command")
                 conn.expect_ack("receive-job command")
-                sent = _send_file(conn, subcommand=b"\x03", name=data_name, content=data, label="data file")
-                _send_file(
-                    conn, subcommand=b"\x02", name=f"cfA{tag}{job.client_host}", content=control, label="control file"
-                )
+                sent = _send_file(conn, kind=_DATA_FILE, name=data_name, content=data)
+                _send_file(conn, kind=_CONTROL_FILE, name=f"cfA{tag}{job.client_host}", content=control)
         return sent
 
 
