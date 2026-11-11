@@ -12,14 +12,10 @@ is never reported as one.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Final
 
 from pydantic import BaseModel
 
-from .port_status import PortState, PortStatus
-
-#: What ``OCCUPIED BY`` reads while a RAW (direct socket) connection holds the port.
-DIRECT_SOCKET: Final = "Direct Socket"
+from .port_status import Occupant, PortState, PortStatus
 
 
 class PortVerdict(str, Enum):
@@ -56,7 +52,9 @@ def is_wedge_candidate(status: PortStatus) -> bool:
         >>> is_wedge_candidate(port)
         True
     """
-    return status.state is PortState.PRINTING and status.occupied_by == DIRECT_SOCKET and status.bytes_serviced == 0
+    return (
+        status.state is PortState.PRINTING and status.occupant is Occupant.DIRECT_SOCKET and status.bytes_serviced == 0
+    )
 
 
 def unprobed_verdict(status: PortStatus) -> PortVerdict:
@@ -79,7 +77,6 @@ def probed_verdict(*, accepted: tuple[bool, ...]) -> PortVerdict:
 
 
 __all__ = [
-    "DIRECT_SOCKET",
     "PortHealth",
     "PortVerdict",
     "is_wedge_candidate",

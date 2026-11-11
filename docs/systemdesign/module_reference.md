@@ -66,7 +66,7 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 | `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP)    |
 | `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                         |
 | `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`              |
-| `port_status.py`      | `PortStatus`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`               |
+| `port_status.py`      | `PortStatus`, `Occupant`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`   |
 | `port_health.py`      | `PortVerdict`, `PortHealth`, `is_wedge_candidate`, `probed_verdict`: a wedged port    |
 | `link.py`             | `LinkDrain`, `link_drain_for`: how long a job takes to cross the serial link          |
 | `neighbor.py`         | `AddressHolder`, `LookupMethod`: who holds an address, asked by ARP or from the cache |

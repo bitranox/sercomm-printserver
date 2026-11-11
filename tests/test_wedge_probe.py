@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import socket
 import threading
 from pathlib import Path
@@ -10,8 +9,13 @@ from pathlib import Path
 import pytest
 from ps301_wedge_probe import (
     Arm,
+    Check,
+    LogLine,
     Options,
     ProbeAbortedError,
+    Reading,
+    RecordKind,
+    Summary,
     Target,
     Tools,
     Trial,
@@ -103,7 +107,7 @@ def _target() -> Target:
 
 
 def test_arms_alternate_within_each_round() -> None:
-    assert [(number, arm.value) for number, arm in schedule(3)] == [
+    assert [(slot.round, slot.arm.value) for slot in schedule(3)] == [
         (1, "wait"),
         (1, "close"),
         (2, "wait"),
@@ -133,7 +137,11 @@ def test_the_query_goes_out_at_once_and_the_checks_follow_at_their_marks() -> No
 
     assert query.asked == [(9102, b"\x01A")]
     assert clock.sleeps == [1.0, 4.0, 10.0]
-    assert trial.verdicts == {"+1s": PortVerdict.IDLE, "+5s": PortVerdict.IDLE, "+15s": PortVerdict.IDLE}
+    assert trial.checks == (
+        Check(after_seconds=1.0, verdict=PortVerdict.IDLE),
+        Check(after_seconds=5.0, verdict=PortVerdict.IDLE),
+        Check(after_seconds=15.0, verdict=PortVerdict.IDLE),
+    )
     assert trial.answer == b"OK".hex()
 
 
@@ -153,7 +161,7 @@ def test_a_port_reading_wedged_at_the_last_mark_is_a_wedge() -> None:
 
     trial = run_trial(_target(), _tools(device, _Query(), clock), number=1, arm=Arm.CLOSE)
 
-    assert trial.verdicts["+15s"] is PortVerdict.WEDGED
+    assert [check.verdict for check in trial.checks] == [PortVerdict.IDLE, PortVerdict.IDLE, PortVerdict.WEDGED]
     assert trial.wedged is True
     assert device.actions == [DeviceAction.RESET]
 
@@ -175,7 +183,7 @@ def _trial(arm: Arm, *, wedged: bool) -> Trial:
         drain_seconds=0.0,
         answer="",
         answered=not wedged,
-        verdicts={},
+        checks=(),
         wedged=wedged,
         restarted=wedged,
     )
@@ -184,19 +192,19 @@ def _trial(arm: Arm, *, wedged: bool) -> Trial:
 @pytest.mark.parametrize(
     ("close_wedged", "wait_wedged", "reading"),
     [
-        ((True, True, False), (False, False, False), "the drain wait held"),
-        ((True, False, False), (False, False, False), "the liveness control failed"),
-        ((True, True, True), (False, True, False), "the drain wait is too short"),
+        ((True, True, False), (False, False, False), Reading.WAIT_HELD),
+        ((True, False, False), (False, False, False), Reading.LIVENESS_FAILED),
+        ((True, True, True), (False, True, False), Reading.WAIT_TOO_SHORT),
     ],
 )
 def test_the_summary_applies_the_pre_registered_reading(
-    close_wedged: tuple[bool, ...], wait_wedged: tuple[bool, ...], reading: str
+    close_wedged: tuple[bool, ...], wait_wedged: tuple[bool, ...], reading: Reading
 ) -> None:
     trials = [_trial(Arm.CLOSE, wedged=w) for w in close_wedged] + [_trial(Arm.WAIT, wedged=w) for w in wait_wedged]
 
     summary = summarise(trials)
 
-    assert summary.reading.startswith(reading)
+    assert summary.reading is reading
     assert summary.trials == {Arm.WAIT: 3, Arm.CLOSE: 3}
     assert summary.wedged[Arm.CLOSE] == sum(close_wedged)
 
@@ -219,9 +227,37 @@ def test_a_run_logs_every_trial_and_the_summary(tmp_path: Path) -> None:
 
     run(options, _tools(device, _Query(), clock), _target())
 
-    lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-    assert [line["kind"] for line in lines] == ["Trial", "Trial", "Trial", "Trial", "Summary"]
-    assert [line["arm"] for line in lines[:4]] == ["wait", "close", "wait", "close"]
+    records = [LogLine.model_validate_json(line).record for line in log.read_text(encoding="utf-8").splitlines()]
+    assert [record.kind for record in records] == [RecordKind.TRIAL] * 4 + [RecordKind.SUMMARY]
+    assert [record.arm for record in records if isinstance(record, Trial)] == [Arm.WAIT, Arm.CLOSE] * 2
+    assert isinstance(records[-1], Summary)
+
+
+def test_a_log_line_keeps_the_wire_values_of_its_enums(tmp_path: Path) -> None:
+    device, clock = _device(), _Clock()
+    log = tmp_path / "wedge.jsonl"
+    options = Options(
+        host="192.0.2.52",
+        printer=3,
+        job=tmp_path / "job",
+        query=tmp_path / "query",
+        log=log,
+        rounds=1,
+        answer_wait=5.0,
+        timeout=10.0,
+        raw_port_base=9100,
+    )
+
+    run(options, _tools(device, _Query(), clock), _target())
+
+    # One round is a wait trial and a close trial, then the summary.
+    trial_line, _, summary_line = log.read_text(encoding="utf-8").splitlines()
+    assert '"kind":"trial"' in trial_line
+    assert '"arm":"wait"' in trial_line
+    assert '"checks":[{"after_seconds":1.0,"verdict":"idle"}' in trial_line
+    assert '"kind":"summary"' in summary_line
+    assert '"trials":{"wait":1,"close":1}' in summary_line
+    assert f'"reading":"{Reading.LIVENESS_FAILED.value}"' in summary_line
 
 
 def test_the_probe_refuses_to_run_without_confirming_that_it_prints(capsys: pytest.CaptureFixture[str]) -> None:

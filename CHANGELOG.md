@@ -19,6 +19,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 - `scripts/ps301_wedge_probe.py` reproduces the wedge on a real device, with and without the
   drain wait, in alternating trials, and logs each one as a JSON line. Every trial prints its job,
   so it runs only with `--confirm-print`.
+- `PortStatus.occupant` gives the protocol `OCCUPIED BY` names as an `Occupant` (`Direct Socket`,
+  `LPD`), and None for a free port or any other holder; `occupied_by` keeps the text.
 
 ### Changed
 

@@ -11,7 +11,7 @@ One block per physical port, separated by blank lines::
 An idle port prints only the first three lines. The port name and the values of STATE, TYPE and
 PRINTER STATUS come from fixed tables in the firmware, so they are closed enums here and an
 unknown one is refused rather than guessed at; OCCUPIED BY names whatever protocol holds the port
-and stays text.
+and stays text, with ``PortStatus.occupant`` naming the protocols code decides on.
 """
 
 from __future__ import annotations
@@ -58,6 +58,17 @@ class PrinterStatus(str, Enum):
     OUT_OF_PAPER = "Out Of Paper"
 
 
+class Occupant(str, Enum):
+    """A protocol ``OCCUPIED BY`` names that code decides on.
+
+    The field is open (the firmware's list is not documented), so these are the values seen on a
+    PS301; any other holder stays text in ``occupied_by`` only.
+    """
+
+    DIRECT_SOCKET = "Direct Socket"
+    LPD = "LPD"
+
+
 def _ascii_digits(value: object) -> object:
     # int() would also take "+5", " 5", "1_000" and non-ASCII digits; the firmware prints none of
     # those, so a wire string must be plain ASCII digits before it becomes a count.
@@ -89,6 +100,24 @@ class PortStatus(BaseModel, frozen=True, extra="forbid", validate_by_name=True, 
         default=None, ge=0, validation_alias=_BYTES_KEY
     )
     occupied_by: str | None = Field(default=None, validation_alias="OCCUPIED BY")
+
+    @property
+    def occupant(self) -> Occupant | None:
+        """``occupied_by`` as a known protocol; None for a free port or an unlisted holder.
+
+        Example:
+            >>> fields = {"port": "SP", "state": "Printing", "type": "Serial", "printer_status": "On-Line"}
+            >>> PortStatus.model_validate({**fields, "occupied_by": "Direct Socket"}).occupant is Occupant.DIRECT_SOCKET
+            True
+            >>> PortStatus.model_validate({**fields, "occupied_by": "IPP"}).occupant is None
+            True
+        """
+        if self.occupied_by is None:
+            return None
+        try:
+            return Occupant(self.occupied_by)
+        except ValueError:
+            return None
 
 
 def _wire_keys() -> frozenset[str]:
@@ -171,4 +200,4 @@ def _precedence(detail: ErrorDetails) -> int:
     return _PRECEDENCE.index(str(detail["loc"][0]))
 
 
-__all__ = ["PortState", "PortStatus", "PortType", "PrinterStatus", "parse_monitor"]
+__all__ = ["Occupant", "PortState", "PortStatus", "PortType", "PrinterStatus", "parse_monitor"]

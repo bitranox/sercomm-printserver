@@ -47,7 +47,7 @@ from sercomm_printserver.domain.errors import (
     JobNotDrainedError,
     PortBusyError,
 )
-from sercomm_printserver.domain.port_status import PortState, PortType
+from sercomm_printserver.domain.port_status import Occupant, PortState, PortType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -238,7 +238,7 @@ def test_every_port_reports_its_status(server: PrintServer, device: _TestDevice)
 
 
 def _ports_on_direct_socket(server: PrintServer) -> set[str]:
-    return {port.port for port in server.status() if port.occupied_by == "Direct Socket"}
+    return {port.port for port in server.status() if port.occupant is Occupant.DIRECT_SOCKET}
 
 
 def test_raw_data_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer) -> None:
@@ -303,7 +303,7 @@ def test_an_lpd_job_for_l1_occupies_the_port_l1_is_routed_to(server: PrintServer
                 raise
         deadline = time.monotonic() + _RAW_SETTLE_SECONDS
         while not busy and time.monotonic() < deadline:
-            busy = {port.port for port in server.status() if port.occupied_by == "LPD"}
+            busy = {port.port for port in server.status() if port.occupant is Occupant.LPD}
         queue = server.queue_state("L1")
     finally:
         server.reset(wait=True)
