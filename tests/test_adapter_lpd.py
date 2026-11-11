@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import tempfile
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, NamedTuple
 
 import pytest
 from fake_lpd_server import FakeLpdServer, closed_port
@@ -268,17 +268,22 @@ def _file(tmp_path: Path, content: bytes) -> Path:
     return path
 
 
-def _submit(job: PrintJob, **client: Callable[[], IO[bytes]]) -> tuple[int, bytes]:
+class _Submitted(NamedTuple):
+    """What one submit returned and what the server received on the wire."""
+
+    sent: int
+    received: bytes
+
+
+def _submit(job: PrintJob, **client: Callable[[], IO[bytes]]) -> _Submitted:
     with FakeLpdServer() as server:
         sent = LpdClient(job_number=lambda: 42, **client).submit(_endpoint(server.port), "L1", job)
         assert server.finished.wait(_WAIT)
-    return sent, bytes(server.received)
+    return _Submitted(sent=sent, received=bytes(server.received))
 
 
 def test_submit_returns_the_size_of_the_data_file_it_sent() -> None:
-    sent, _ = _submit(_JOB)
-
-    assert sent == len(b"%!PS\nshowpage\n")
+    assert _submit(_JOB).sent == len(b"%!PS\nshowpage\n")
 
 
 def test_a_job_from_a_path_is_sent_as_its_file_holds_it(tmp_path: Path) -> None:

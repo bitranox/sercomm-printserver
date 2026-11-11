@@ -333,7 +333,8 @@ class PrintServer:
         Returns:
             The number of bytes sent.
         """
-        job, port = self._raw_job(logical_printer, data)
+        job = self._raw_job(data)
+        port = self._raw_port(logical_printer)
         return self._send_raw(self.read_config(), logical_printer, port, job)
 
     def print_raw_verified(
@@ -363,7 +364,8 @@ class PrintServer:
             JobNotDrainedError: The data was sent and the port stayed busy or could not be read.
             DeviceUnavailableError: The device failed before or during the send, never after it.
         """
-        job, port = self._raw_job(logical_printer, data)
+        job = self._raw_job(data)
+        port = self._raw_port(logical_printer)
         config = self.read_config()
         routed = config.logical_printers[logical_printer - 1].port
         host = self._endpoint.host
@@ -420,16 +422,18 @@ class PrintServer:
         printers = config.logical_printers[:_RAW_LAST_PRINTER]
         return tuple(self._raw_port_base + printer.number - 1 for printer in printers if printer.port is port)
 
-    def _raw_job(self, logical_printer: int, data: PrintData | bytes) -> tuple[PrintData, int]:
-        """Refuse an empty job or a printer without a RAW port; return the job to send and its port.
+    @staticmethod
+    def _raw_job(data: PrintData | bytes) -> PrintData:
+        """Refuse an empty job; return the data to send, which for a pipe is a new object.
 
-        An empty job is refused first, before the device is contacted: data that no printer
-        takes leaves the port busy. A pipe has no size, so its first piece is read to tell.
+        Callers run this before :meth:`_raw_port`, so an empty job is refused first and before
+        the device is contacted: data that no printer takes leaves the port busy. A pipe has no
+        size, so its first piece is read to tell.
         """
         job = (data if isinstance(data, PrintData) else PrintData.of(data)).unless_empty()
         if job is None:
             raise ValueError("refusing to open a RAW print port without data to send")
-        return job, self._raw_port(logical_printer)
+        return job
 
     def _raw_port(self, logical_printer: int) -> int:
         port = self._raw_port_base + logical_printer - 1
