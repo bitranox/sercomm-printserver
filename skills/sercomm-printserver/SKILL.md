@@ -36,6 +36,7 @@ cannot.
 | Name, MAC, firmware, addresses        | `device-info --host H`                                                     |
 | Firmware version only                 | `firmware --host H`                                                        |
 | Port state and printer status         | `status --host H`                                                          |
+| A RAW port wedged, held or printing   | `check --host H` (`check --reset --yes` restarts only on a wedge)          |
 | LPD queue state (sends no print data) | `queue L1 --host H` (`L1` is the default; `--long` for the long form)      |
 | Whole configuration / one value       | `device-config show` / `device-config get IP_ADDR`                         |
 | Change settings                       | `device-config set DHCP_MODE=Disable IP_ADDR=192.0.2.60 --yes`             |
@@ -54,8 +55,9 @@ Every device command except `discover` and `arp` (which take `--network` and `--
 takes `--host`, overriding `[device] host` from the configuration
 (`SERCOMM_PRINTSERVER___DEVICE__HOST` in the environment). `--timeout` (0.1-600 s) overrides
 `[device] timeout` (default 10 s). Commands that change the device (`device-config set`/`import`,
-`reset`, `password`, `store-ip`, `factory-default`, `arp assign-ip`/`factory-reset`) exit 77
-without `--yes`; `device-config set`/`import` also list the changes they would make. The rows
+`reset`, `check --reset`, `password`, `store-ip`, `factory-default`,
+`arp assign-ip`/`factory-reset`) exit 77 without `--yes`; `device-config set`/`import` also list
+the changes they would make. The rows
 above that show `--confirm-name` need both, the name being the device's `server_name` or
 `default_name` from `device-info`, in any case. Reading and printing need neither.
 
@@ -84,6 +86,8 @@ confirmation, `AuthenticationRequiredError` for a login the device wants; 13:
 | 0    | done                                                                                           |
 | 1    | any other failure (the kernel refused the ARP entry for another reason, an unexpected error)   |
 | 2    | usage error, reported by the command-line parser (no JSON)                                     |
+| 3    | `check`: a port is wedged (with `--reset`: still wedged after the restart); the JSON answer    |
+|      | is the success shape (`ok`, `command`, `data`, `skipped`) with `ok` false, so read `data`      |
 | 13   | this host lacks a right: `arp` writing the ARP table or sending an ARP request to check        |
 |      | the address is free; `config-deploy` a system dir                                              |
 | 22   | invalid argument (malformed address, unknown CONFIG key, empty RAW data, `--ip` held           |
@@ -123,11 +127,12 @@ that printer is routed, exactly like an LPD job (measured on a PS301, firmware 6
 4010/4020/4030 for the same three printers; they step by 10, so `raw_port_base` cannot express
 them. `print raw 4` and above is refused (exit 2). Prefer `print lpd`, which reaches all eight.
 
-**Never send a test job to a port without a printer**, by RAW or LPD - no port probe, no
-`echo > /dev/tcp/H/9100`, no empty test print. Data that no printer takes stays queued: the port
-reads "Printing / Direct Socket" (RAW) or "Printing / OCCUPIED BY: LPD" until the device restarts
-(`reset --yes` clears it). An LPD job there is accepted, but the device holds back the
-acknowledgement of its data, so `print lpd` fails after `--timeout` with exit 76. `print raw`
+**Never send a test job to a port without a printer**, by RAW or LPD - no port probe that sends
+anything (`echo > /dev/tcp/H/9100` sends a newline), no empty test print. A bare connect that
+sends nothing and closes is harmless; that is what `check` does. Data that no printer takes stays
+queued: the port reads "Printing / Direct Socket" (RAW) or "Printing / OCCUPIED BY: LPD" until the
+device restarts (`reset --yes` clears it). An LPD job there is accepted, but the device holds back
+the acknowledgement of its data, so `print lpd` fails after `--timeout` with exit 76. `print raw`
 refuses empty data (exit 22).
 To check a port, read `status`: each port's state (`Idle` or `Printing`), its type and the
 printer status the device reports (`Offline` with no printer attached or switched off).
@@ -155,13 +160,41 @@ job's duration for a long job, and `--verify-timeout` without `--verify` is a us
 - Exit 75: the port stayed busy before the send and nothing was sent, so sending later is safe.
 - Exit 110: the data was sent, so do not resend it blindly. The port stayed busy or could not be
   read any more. That also covers a healthy job that outlasts the timeout, or another client taking
-  the port after the last read, when this job's data still went out behind that client's. So read
-  `status` before `reset --yes`, which clears a busy port.
+  the port after the last read, when this job's data still went out behind that client's. The
+  message names a wedged port or another client holding it where it could tell; otherwise run
+  `check` (below) before any restart, and restart with `check --reset --yes` rather than
+  `reset --yes`, so a port that is only busy is left alone.
 - Exit 69 comes only from before or during the send: a refused connect sent nothing, while a
   connection lost during the send may have delivered part of the job.
 
 On success the JSON answer adds `idle_port`. `Idle` means the port is free again, not that a page
 came out.
+
+**A wedged RAW port.** The device takes a RAW job at once and passes it to a serial printer at the
+port's baud rate (about 960 bytes/s at 9600 8N1). A NEW RAW connection opened before that is done
+loses its data, and the port then reads "Printing / Direct Socket" with 0 bytes serviced, with no
+client connected, until a restart; every later job to it is accepted and lost. A job a plain
+`print raw` sent into a port that was already wedged never printed (`--verify` refuses such a port
+with exit 75 and sends nothing). After an exit 110 that names a wedge, the device cannot say
+whether this job printed before the port wedged, so look at the printer's output before sending
+it again once the wedge is cleared. `print raw` prevents this for its own jobs: before it closes,
+it keeps the connection open until the job has crossed the serial line (bytes / rate plus 0.25 s,
+computed from the configured baud rate; about 2.4 s for 2 KB at 9600 8N1). Every `print raw`
+therefore reads CONFIG first to find the routing; a job routed to a parallel or USB port gets no
+wait. Another program sending to the same port on its own connection is not covered.
+
+`status` cannot tell a wedge from a client still holding the port: both read the same. `check`
+can. For each port reading "Printing / Direct Socket" with 0 bytes serviced, it makes a bare
+connect, with no data, to every RAW port routed there: a wedged port accepts all of them, a held
+one refuses. Each port gets a verdict: `idle`, `printing` (busy in any other way), `held`,
+`wedged`, or `unprobed` (in that state, but no RAW printer `L1`..`L3` is routed there, so nothing
+could be probed; the table shows it as `printing (unprobed)`). The JSON `data` holds each port's
+`status` and `verdict`, plus the booleans `wedged` and `restarted`. Exit 3 means a port is
+wedged, 0 that none is. `check --reset --yes` restarts the device only when a port is wedged,
+waits for it, checks again, and exits 0 only once none is; `--reset` without `--yes` exits 77. A
+restart restarts every port, a busy one too, so restart through `check --reset` and not on a
+hunch. `check` does not catch a RAW port that refuses every connect while it reads `Idle`
+(exit 69 above).
 
 ## Passwords and logins
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from .commands import (
     cli_arp,
+    cli_check,
     cli_config,
     cli_config_deploy,
     cli_config_generate_examples,
@@ -56,6 +57,7 @@ __all__ = [
     "cli",
     # Commands
     "cli_arp",
+    "cli_check",
     "cli_config",
     "cli_config_deploy",
     "cli_config_generate_examples",

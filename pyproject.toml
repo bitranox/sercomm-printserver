@@ -184,13 +184,14 @@ typeCheckingMode = "strict"
 extraPaths = [
   "src",
   "tests",
+  "scripts",
 ]
 executionEnvironments = [{root = "tests"}]
 
 [tool.pytest.ini_options]
 addopts = ["--doctest-modules"]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
-pythonpath = ["src", "tests"]
+pythonpath = ["src", "tests", "scripts"]
 markers = [
   "os_agnostic: test runs on every supported operating system",
   "os_windows: test exercises Windows-only behavior",

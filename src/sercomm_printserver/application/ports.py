@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ..domain.device_info import MacAddress
     from ..domain.endpoint import DeviceEndpoint, PrintJob
     from ..domain.enums import DeployTarget, OutputFormat
+    from ..domain.link import LinkDrain
     from ..domain.neighbor import AddressHolder
     from .discovery import LocalScope, ProbeHit
     from .print_server import PrintServer
@@ -154,8 +155,12 @@ class LpdPort(Protocol):
 class RawPort(Protocol):
     """RAW / direct-socket printing: the bytes go straight to the port, no protocol."""
 
-    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes) -> None:
-        """Connect to ``port``, send ``data``, close."""
+    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes, *, drain: LinkDrain | None = None) -> None:
+        """Connect to ``port``, send ``data``, keep the connection open for ``drain``, close."""
+        ...
+
+    def accepts_connection(self, endpoint: DeviceEndpoint, port: int) -> bool:
+        """Whether ``port`` accepts a connection (closed at once, no data sent)."""
         ...
 
 

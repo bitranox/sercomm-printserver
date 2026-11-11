@@ -54,6 +54,7 @@ NEEDS_CONFIG: dict[str, list[str]] = {
     "firmware": ["firmware"],
     "device-info": ["device-info"],
     "status": ["status"],
+    "check": ["check"],
     "queue": ["queue", "L1"],
     "device-config": ["device-config", "show"],
     "reset": ["reset", "--yes"],

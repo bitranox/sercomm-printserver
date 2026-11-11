@@ -24,7 +24,8 @@ class ExitCode(IntEnum):
     Values follow sysexits.h and errno conventions where applicable:
 
     * 0-1: generic success / failure
-    * 2-13: errno-derived codes (ENOENT, EACCES)
+    * 2, 13: errno-derived codes (ENOENT, EACCES)
+    * 3: ``check`` found a wedged port (after ``--reset``: one still wedged after the restart)
     * 22: EINVAL
     * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer
     * 75: EX_TEMPFAIL (sysexits.h): ``print raw --verify`` found the port busy and sent nothing
@@ -45,6 +46,7 @@ class ExitCode(IntEnum):
     SUCCESS = 0
     GENERAL_ERROR = 1
     FILE_NOT_FOUND = 2
+    PORT_WEDGED = 3
     PERMISSION_DENIED = 13
     INVALID_ARGUMENT = 22
     DEVICE_UNAVAILABLE = 69

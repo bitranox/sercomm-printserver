@@ -22,6 +22,7 @@ from sercomm_printserver.domain.errors import (
     JobNotDrainedError,
     PortBusyError,
 )
+from sercomm_printserver.domain.port_health import PortHealth, PortVerdict
 from sercomm_printserver.domain.port_status import PortState
 
 if TYPE_CHECKING:
@@ -491,8 +492,9 @@ def test_a_port_that_stays_busy_fails_the_verified_print_after_the_data_was_sent
 
     assert device.raw_sends == [(9102, b"x")]
     assert str(caught.value) == (
-        "192.0.2.52: the data was sent, but SP is still Printing 2.5 s later "
-        "(occupied by Direct Socket, 0 bytes serviced); a restart clears the port"
+        "192.0.2.52: the data was sent, but SP is wedged: it still reads Printing 2.5 s later "
+        "(occupied by Direct Socket, 0 bytes serviced) and every RAW port routed there accepts a "
+        "connection; `check --reset --yes` clears it"
     )
     # The last pause is cut to the deadline, and one more read decides at the deadline itself.
     assert clock.sleeps == [1.0, 1.0, 0.5]
@@ -528,10 +530,26 @@ def test_a_port_that_stays_busy_before_the_send_gets_nothing() -> None:
 
     assert device.raw_sends == []
     assert str(caught.value) == (
-        "192.0.2.52: nothing was sent, SP is still Printing after 2.5 s "
-        "(occupied by Direct Socket, 0 bytes serviced); a restart clears a stuck port"
+        "192.0.2.52: nothing was sent, SP is wedged: it still reads Printing after 2.5 s "
+        "(occupied by Direct Socket, 0 bytes serviced) and every RAW port routed there accepts a "
+        "connection; `check --reset --yes` clears it"
     )
     assert clock.sleeps == [1.0, 1.0, 0.5]
+
+
+def test_a_port_still_moving_bytes_is_reported_busy_without_a_probe() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing").replace("SERVICED:          0", "SERVICED:        512")
+    clock = _ManualClock()
+
+    with pytest.raises(PortBusyError) as caught:
+        _server(device, clock=clock).print_raw_verified(3, b"x", timeout=1.0)
+
+    assert str(caught.value) == (
+        "192.0.2.52: nothing was sent, SP is still Printing after 1 s "
+        "(occupied by Direct Socket, 512 bytes serviced); a restart clears a stuck port"
+    )
+    assert device.raw_probes == []
 
 
 def test_each_wait_of_a_verified_print_gets_the_whole_timeout() -> None:
@@ -604,3 +622,213 @@ def test_a_verified_raw_print_refuses_bad_input_before_reading_the_device(
 
     with pytest.raises(ValueError, match=message):
         _server(device).print_raw_verified(printer, data)
+
+
+# ---------------------------------------------------------------- the drain wait
+
+
+def test_a_raw_print_routed_to_the_serial_port_waits_for_its_link() -> None:
+    # L3 is routed to SP in the dumped CONFIG, which runs 9600 8N1: 960 bytes per second.
+    device = _device()
+
+    _server(device).print_raw(3, b"x")
+
+    [drain] = device.raw_drains
+    assert drain is not None
+    assert drain.bytes_per_second == 960.0
+
+
+def test_the_drain_follows_the_configured_baud_rate() -> None:
+    device = _device()
+    device.config = device.config.replace("0030 BAUDRATE:9600", "0030 BAUDRATE:2400")
+
+    _server(device).print_raw(3, b"x")
+
+    [drain] = device.raw_drains
+    assert drain is not None
+    assert drain.bytes_per_second == 240.0
+
+
+def test_a_raw_print_routed_to_a_parallel_port_does_not_wait() -> None:
+    device = _device()
+
+    _server(device).print_raw(1, b"x")
+
+    assert device.raw_drains == [None]
+
+
+def test_a_verified_raw_print_waits_for_the_link_too() -> None:
+    device = _device()
+    device.monitor_replies = [_monitor(), _monitor()]
+
+    _server(device).print_raw_verified(3, b"x")
+
+    [drain] = device.raw_drains
+    assert drain is not None
+    assert drain.bytes_per_second == 960.0
+
+
+def test_a_raw_print_that_cannot_read_the_routing_sends_nothing() -> None:
+    device = _device()
+    device.reachable = False
+
+    with pytest.raises(DeviceUnavailableError):
+        _server(device).print_raw(3, b"x")
+    assert device.raw_sends == []
+
+
+# ---------------------------------------------------------------- check
+
+
+def _verdicts(ports: tuple[PortHealth, ...]) -> dict[str, PortVerdict]:
+    return {health.status.port.value: health.verdict for health in ports}
+
+
+def test_a_device_with_every_port_idle_checks_clean_without_reading_the_config() -> None:
+    device = _device()
+    device.monitor_text = _monitor()
+
+    result = _server(device).check()
+
+    assert _verdicts(result.ports) == {"P1": PortVerdict.IDLE, "P2": PortVerdict.IDLE, "SP": PortVerdict.IDLE}
+    assert result.wedged is False
+    assert device.retrieved == []
+    assert device.raw_probes == []
+
+
+def test_a_stuck_direct_socket_port_that_accepts_every_probe_is_wedged() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+
+    result = _server(device).check()
+
+    assert _verdicts(result.ports)["SP"] is PortVerdict.WEDGED
+    assert result.wedged is True
+    # L3 (9102) is the only one of L1..L3 routed to SP; L6 is too, but has no RAW port.
+    assert device.raw_probes == [9102]
+    assert device.raw_sends == []
+
+
+def test_a_port_another_client_holds_refuses_the_probe_and_reads_held() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+    device.raw_refusing = {9102}
+
+    result = _server(device).check()
+
+    assert _verdicts(result.ports)["SP"] is PortVerdict.HELD
+    assert result.wedged is False
+
+
+def test_one_refusing_raw_port_of_several_routed_there_reads_held() -> None:
+    # Only a port every probe got into counts as wedged, so a live job is never called one.
+    device = _device()
+    device.config = device.config.replace("0100 L1_PROUT:P1", "0100 L1_PROUT:SP")
+    device.monitor_text = _monitor(sp="Printing")
+    device.raw_refusing = {9102}
+
+    assert _verdicts(_server(device).check().ports)["SP"] is PortVerdict.HELD
+
+
+def test_every_raw_port_routed_to_a_wedged_port_is_probed() -> None:
+    device = _device()
+    device.config = device.config.replace("0100 L1_PROUT:P1", "0100 L1_PROUT:SP")
+    device.monitor_text = _monitor(sp="Printing")
+
+    assert _verdicts(_server(device).check().ports)["SP"] is PortVerdict.WEDGED
+    assert device.raw_probes == [9100, 9102]
+
+
+def test_a_candidate_no_raw_port_is_routed_to_is_reported_unprobed() -> None:
+    device = _device()
+    device.monitor_text = _monitor(p2="Printing")
+    device.config = device.config.replace("0120 L2_PROUT:P2", "0120 L2_PROUT:P1")
+
+    result = _server(device).check()
+
+    assert _verdicts(result.ports)["P2"] is PortVerdict.UNPROBED
+    assert result.wedged is False
+    assert device.raw_probes == []
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "BYTES SERVICED:        512\r\nOCCUPIED BY: Direct Socket",
+        "BYTES SERVICED:          0\r\nOCCUPIED BY: LPD",
+    ],
+)
+def test_a_port_moving_bytes_or_held_by_another_protocol_is_printing(block: str) -> None:
+    device = _device()
+    head = "(SP)STATE: Printing\r\nTYPE: Serial\r\nPRINTER STATUS: On-Line"
+    device.monitor_text = f"(P1)STATE: Idle\r\nTYPE: Parallel\r\nPRINTER STATUS: On-Line\r\n\r\n{head}\r\n{block}\r\n"
+
+    result = _server(device).check()
+
+    assert _verdicts(result.ports)["SP"] is PortVerdict.PRINTING
+    assert device.raw_probes == []
+
+
+def test_reset_if_wedged_restarts_and_checks_again() -> None:
+    device = _device()
+    device.restart_after_reads = 1
+    device.monitor_replies = [_monitor(sp="Printing"), _monitor()]
+
+    result = _server(device).reset_if_wedged()
+
+    assert device.actions == [DeviceAction.RESET]
+    assert result.restarted is True
+    assert _verdicts(result.before)["SP"] is PortVerdict.WEDGED
+    assert _verdicts(result.ports)["SP"] is PortVerdict.IDLE
+    assert result.wedged is False
+
+
+def test_reset_if_wedged_leaves_a_device_alone_when_nothing_is_wedged() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+    device.raw_refusing = {9102}
+
+    result = _server(device).reset_if_wedged()
+
+    assert device.actions == []
+    assert result.restarted is False
+    assert result.before == ()
+    assert _verdicts(result.ports)["SP"] is PortVerdict.HELD
+
+
+def test_a_wedge_that_survives_the_restart_is_still_reported() -> None:
+    device = _device()
+    device.restart_after_reads = 1
+    device.monitor_text = _monitor(sp="Printing")
+
+    result = _server(device).reset_if_wedged()
+
+    assert result.restarted is True
+    assert result.wedged is True
+
+
+def test_a_verified_print_names_a_wedge_in_its_refusal() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+
+    with pytest.raises(PortBusyError, match=r"SP is wedged.*check --reset --yes"):
+        _server(device, clock=_ManualClock()).print_raw_verified(3, b"x", timeout=1.0)
+    assert device.raw_sends == []
+
+
+def test_a_verified_print_names_another_client_in_its_refusal() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+    device.raw_refusing = {9102}
+
+    with pytest.raises(PortBusyError, match=r"another client holds it"):
+        _server(device, clock=_ManualClock()).print_raw_verified(3, b"x", timeout=1.0)
+
+
+def test_a_verified_print_names_a_wedge_left_after_its_own_send() -> None:
+    device = _device()
+    device.monitor_replies = [_monitor()]
+    device.monitor_text = _monitor(sp="Printing")
+
+    with pytest.raises(JobNotDrainedError, match=r"the data was sent, but SP is wedged"):
+        _server(device, clock=_ManualClock()).print_raw_verified(3, b"x", timeout=1.0)

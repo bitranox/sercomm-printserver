@@ -115,13 +115,19 @@ def run_device_command(
     flags: DeviceFlags,
     work: Callable[[PrintServer], _P],
     human: Callable[[_P], str],
+    outcome: Callable[[_P], ExitCode] | None = None,
 ) -> None:
-    """Run ``work`` against the configured device and answer in the requested shape."""
+    """Run ``work`` against the configured device and answer in the requested shape.
+
+    ``outcome`` maps a completed answer to its exit code, for a command whose answer can be
+    "no" (``check`` finding a wedge): the answer is still printed, the envelope's ``ok`` is
+    False, and the command exits with that code.
+    """
 
     def on_endpoint(endpoint: DeviceEndpoint, services: AppServices, settings: DeviceSettings) -> _P:
         return work(services.open_print_server(endpoint, raw_port_base=settings.raw_port_base))
 
-    run_endpoint_command(ctx, command=command, flags=flags, work=on_endpoint, human=human)
+    run_endpoint_command(ctx, command=command, flags=flags, work=on_endpoint, human=human, outcome=outcome)
 
 
 def run_endpoint_command(
@@ -131,6 +137,7 @@ def run_endpoint_command(
     flags: DeviceFlags,
     work: Callable[[DeviceEndpoint, AppServices, DeviceSettings], _P],
     human: Callable[[_P], str],
+    outcome: Callable[[_P], ExitCode] | None = None,
 ) -> None:
     """Like :func:`run_device_command`, for work that needs the endpoint and services themselves.
 
@@ -148,10 +155,13 @@ def run_endpoint_command(
         except _HANDLED as error:
             report_failure(error, command=command, mode=mode)
             ctx.exit(exit_code_for(error))
+    code = ExitCode.SUCCESS if outcome is None else outcome(payload)
     if mode.machine:
-        write_envelope(Envelope.of(command=command, payload=payload), mode=mode)
+        write_envelope(Envelope.of(command=command, payload=payload, ok=code is ExitCode.SUCCESS), mode=mode)
     else:
         safe_console.echo(human(payload))
+    if code is not ExitCode.SUCCESS:
+        ctx.exit(code)
 
 
 class DeviceFlags(BaseModel, frozen=True, extra="forbid"):

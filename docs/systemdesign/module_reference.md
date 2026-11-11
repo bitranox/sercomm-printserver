@@ -67,6 +67,8 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 | `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                         |
 | `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`              |
 | `port_status.py`      | `PortStatus`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`               |
+| `port_health.py`      | `PortVerdict`, `PortHealth`, `is_wedge_candidate`, `probed_verdict`: a wedged port    |
+| `link.py`             | `LinkDrain`, `link_drain_for`: how long a job takes to cross the serial link          |
 | `neighbor.py`         | `AddressHolder`, `LookupMethod`: who holds an address, asked by ARP or from the cache |
 | `enums.py`            | `OutputFormat`, `DeployTarget`                                                        |
 | `errors.py`           | The exception types (see Exit Codes)                                                  |
@@ -75,7 +77,8 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 
 * `print_server.py` - `PrintServer` (firmware_version, info, status, read_config, queue_state,
   plan_config, write_config, reset, set_password, clear_password, store_ip, factory_default,
-  print_lpd, print_raw), `DevicePorts`, `ConfigWriteResult`.
+  print_lpd, print_raw, print_raw_verified, check, reset_if_wedged), `DevicePorts`,
+  `ConfigWriteResult`, `CheckResult`.
 * `discovery.py` - `discover(scanner, networks=, timeout=)` returning `DiscoveryReport` of
   `DiscoveredDevice`; `LocalScope` (the default sweep plan the scanner port returns),
   `MAX_HOSTS`, `PRINT_SERVER_GREETING`.
@@ -156,6 +159,7 @@ takes `--network`, the `arp` commands `--mac`, `--ip` and `--interface` (`assign
 | `factory-default`          | Restore factory settings (stored IP 0.0.0.0 with DHCP on, name empty) |
 | `print lpd QUEUE SOURCE`   | Send a file or stdin to an LPD queue (`--job-name`)                   |
 | `print raw PRINTER SOURCE` | Send to the RAW port of logical printer 1..3 (`--verify`)             |
+| `check`                    | Tell wedged ports from busy ones; restart with `--reset --yes`        |
 | `arp reach`                | Read the identity of the device behind `--mac` at borrowed `--ip`     |
 | `arp assign-ip`            | Store `--ip` as static address (DHCP off) and restart there           |
 | `arp factory-reset`        | Restore factory settings of the device behind `--mac`                 |
@@ -170,6 +174,7 @@ in `adapters/cli/commands/_device.py` (first match wins, anything else exits 1).
 | 0    | `SUCCESS`            | Command completed                                                                                                                                        |
 | 1    | `GENERAL_ERROR`      | `NeighborTableError`, or any unmapped failure                                                                                                            |
 | 2    | `FILE_NOT_FOUND`     | click's usage error (bad option or missing argument); no command raises it                                                                               |
+| 3    | `PORT_WEDGED`        | `check` found a wedged port (with `--reset`: still wedged after the restart); not an exception                                                           |
 | 13   | `PERMISSION_DENIED`  | `HostPrivilegeError` (no right to change the ARP table), `UnverifiedAddressError` (no ARP request possible, cache knows nothing); config-deploy refusals |
 | 22   | `INVALID_ARGUMENT`   | `ValueError`, including `ConfigFormatError`; config section not found                                                                                    |
 | 69   | `DEVICE_UNAVAILABLE` | `DeviceUnavailableError`: refused, timed out, no route                                                                                                   |
@@ -203,6 +208,19 @@ does not list is refused with nothing sent. A port busy until the first deadline
 `PortBusyError`, since a busy port would accept the job behind the one holding it. Every failure
 after the send is `JobNotDrainedError`, never `DeviceUnavailableError`, so exit 69 cannot lead a
 caller to send a job the device already has.
+
+**Serial drain:** `print_raw` reads CONFIG first. For a logical printer routed to `SP`,
+`link_drain_for` gives a `LinkDrain` at baud / (1 + data + parity + stop bits) bytes per second, and
+`RawPrinter.send` keeps the connection fully open until the bytes the socket took have crossed
+that link, plus 0.25 s, before the half-close. A new RAW connection opened while the device still
+passes a job on loses its data and wedges the port; a half-close does not help, since the device
+closes about 0.07 s after EOF. Parallel and USB ports get no wait.
+
+**Wedge check:** `PrintServer.check` reads status and, for each port reading `Printing`, occupied by
+`Direct Socket`, 0 bytes serviced, asks `RawPort.accepts_connection` on every RAW port routed there
+(a bare connect, no data, measured safe). All accepted: `WEDGED`. Any refusal: `HELD` by a client.
+`reset_if_wedged` restarts only on a wedge and checks again. `print_raw_verified` words its busy
+errors from the same verdict.
 
 **ARP trick:** the static neighbour entry lives only inside `borrowed_address`; the device is
 then spoken to over FTP at the borrowed address, and the entry is removed in every case.

@@ -71,6 +71,7 @@ def test_module_entry_cli_exports_all_registered_commands() -> None:
     """CLI facade exports all registered commands - and every command the root group registers."""
     expected_commands = {
         "cli_arp",
+        "cli_check",
         "cli_config",
         "cli_config_deploy",
         "cli_config_generate_examples",

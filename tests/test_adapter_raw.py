@@ -15,6 +15,7 @@ from fake_raw_server import FakeRawServer, RawBehaviour
 from sercomm_printserver.adapters.raw import RawPrinter
 from sercomm_printserver.domain.endpoint import DeviceEndpoint
 from sercomm_printserver.domain.errors import DeviceUnavailableError
+from sercomm_printserver.domain.link import DRAIN_MARGIN_SECONDS, LinkDrain
 
 if TYPE_CHECKING:
     from sercomm_printserver.application.ports import RawPort
@@ -164,3 +165,125 @@ def test_a_port_that_refuses_for_a_moment_after_a_job_still_takes_the_next_one()
 def test_a_malformed_host_name_is_unavailable_not_a_raw_codec_error() -> None:
     with pytest.raises(DeviceUnavailableError, match=re.escape("bad..host:9100 could not be reached")):
         RawPrinter().send(DeviceEndpoint(host="bad..host", timeout=_PATIENT), 9100, b"job")
+
+
+# ---------------------------------------------------------------------- the drain wait
+
+
+class _RecordingSleep:
+    """A sleep that records what it was asked for and whether the job had ended by then.
+
+    It really sleeps a little before looking, so a client that half-closed BEFORE its wait has
+    given the fake time to see the end of stream, and the test reads ``True``.
+    """
+
+    def __init__(self, server: FakeRawServer) -> None:
+        self._server = server
+        self.waits: list[float] = []
+        self.half_closed_during_wait: list[bool] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        time.sleep(0.2)
+        self.half_closed_during_wait.append(self._server.saw_half_close)
+
+
+class _FrozenClock:
+    def __call__(self) -> float:
+        return 100.0
+
+
+def test_with_a_link_the_connection_stays_open_for_the_drain_before_the_half_close() -> None:
+    job = b"J" * 1920
+    with FakeRawServer() as server:
+        sleep = _RecordingSleep(server)
+        printer = RawPrinter(sleep=sleep, clock=_FrozenClock())
+        printer.send(_endpoint(), server.port, job, drain=LinkDrain(bytes_per_second=960.0))
+
+    assert sleep.waits == [pytest.approx(2.0 + DRAIN_MARGIN_SECONDS)]
+    assert sleep.half_closed_during_wait == [False]
+    assert server.saw_half_close
+    assert server.received == job
+
+
+def test_time_the_send_itself_took_counts_towards_the_drain() -> None:
+    # The device passes bytes on while later ones are still being sent, so a send that took
+    # time leaves less to wait for once it is done.
+    ticks = iter([10.0, 10.5])
+
+    def clock() -> float:
+        return next(ticks, 10.5)
+
+    with FakeRawServer() as server:
+        sleep = _RecordingSleep(server)
+        RawPrinter(sleep=sleep, clock=clock).send(
+            _endpoint(), server.port, b"J" * 960, drain=LinkDrain(bytes_per_second=960.0, margin=0.0)
+        )
+
+    assert sleep.waits == [pytest.approx(0.5)]
+
+
+def test_without_a_link_nothing_waits() -> None:
+    with FakeRawServer() as server:
+        sleep = _RecordingSleep(server)
+        RawPrinter(sleep=sleep, clock=_FrozenClock()).send(_endpoint(), server.port, b"job")
+
+    assert sleep.waits == []
+    assert server.received == b"job"
+
+
+def test_a_failed_send_does_not_wait_for_a_drain() -> None:
+    big_job = _JOB * 32
+    with FakeRawServer(behaviour=RawBehaviour.RESET_MID_STREAM, reset_after=1024) as server:
+        sleep = _RecordingSleep(server)
+        with pytest.raises(DeviceUnavailableError):
+            RawPrinter(sleep=sleep, clock=_FrozenClock()).send(
+                _endpoint(), server.port, big_job, drain=LinkDrain(bytes_per_second=960.0)
+            )
+
+    assert sleep.waits == []
+
+
+# ---------------------------------------------------------------------- the connect probe
+
+
+def test_a_port_that_accepts_is_reported_open_and_gets_no_data() -> None:
+    with FakeRawServer() as server:
+        assert RawPrinter().accepts_connection(_endpoint(), server.port) is True
+
+    assert server.connections == 1
+    assert server.received == b""
+
+
+def test_a_port_that_keeps_refusing_is_reported_closed() -> None:
+    # The full patient timeout: Windows reports a refused connect only after about 2 s.
+    assert RawPrinter().accepts_connection(_endpoint(), closed_port()) is False
+
+
+def test_a_port_that_refuses_for_a_moment_is_reported_open() -> None:
+    port = closed_port()
+    accepted = threading.Event()
+
+    def listen_late() -> None:
+        time.sleep(0.8)
+        with socket.create_server(("127.0.0.1", port)) as listener:
+            conn, _ = listener.accept()
+            conn.close()
+            accepted.set()
+
+    worker = threading.Thread(target=listen_late, daemon=True)
+    worker.start()
+    assert RawPrinter().accepts_connection(_endpoint(), port) is True
+    worker.join(_PATIENT)
+    assert accepted.is_set()
+
+
+def test_a_probe_of_an_unreachable_host_is_unavailable() -> None:
+    with pytest.raises(DeviceUnavailableError, match=re.escape("bad..host:9100 could not be reached")):
+        RawPrinter().accepts_connection(DeviceEndpoint(host="bad..host", timeout=_PATIENT), 9100)
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def test_a_probe_outside_the_tcp_range_is_refused(port: int) -> None:
+    with pytest.raises(ValueError, match=re.escape("port must be 1..65535")):
+        RawPrinter().accepts_connection(_endpoint(), port)

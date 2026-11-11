@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from ..domain import config_catalogue as cat
 from ..domain.config_codec import ConfigChange, diff_config, parse_config, render_config
@@ -30,6 +30,8 @@ from ..domain.errors import (
     JobNotDrainedError,
     PortBusyError,
 )
+from ..domain.link import link_drain_for
+from ..domain.port_health import PortHealth, PortVerdict, is_wedge_candidate, probed_verdict, unprobed_verdict
 from ..domain.port_status import PortState, PortStatus, parse_monitor
 
 if TYPE_CHECKING:
@@ -93,6 +95,26 @@ class ConfigWriteResult(BaseModel, frozen=True, extra="forbid"):
     reachable_at: str | None
 
 
+class CheckResult(BaseModel, frozen=True, extra="forbid"):
+    """What :meth:`PrintServer.check` or :meth:`PrintServer.reset_if_wedged` found.
+
+    Attributes:
+        ports: Every port's health; after a restart, as read after it.
+        restarted: Whether the device was restarted because a port was wedged.
+        before: Every port's health before that restart; empty when there was none.
+    """
+
+    ports: tuple[PortHealth, ...]
+    restarted: bool = False
+    before: tuple[PortHealth, ...] = ()
+
+    @computed_field
+    @property
+    def wedged(self) -> bool:
+        """Whether a port is (still) wedged."""
+        return any(health.verdict is PortVerdict.WEDGED for health in self.ports)
+
+
 class PrintServer:
     """One SerComm print server, reached through injected protocol adapters.
 
@@ -145,6 +167,32 @@ class PrintServer:
     def status(self) -> tuple[PortStatus, ...]:
         """Return the state of every physical port (Telnet ``monitor``)."""
         return parse_monitor(self._ports.telnet.monitor(self._endpoint))
+
+    def check(self) -> CheckResult:
+        """Tell every busy port apart: printing, held by a client, or wedged.
+
+        One monitor read. Only a port reading ``Printing`` / ``Direct Socket`` / 0 bytes serviced
+        costs more: the configuration is read, and each RAW port (L1..L3) routed there gets a bare
+        connect with no data. A wedged port accepts every one; a port a client holds refuses
+        (measured on a PS301, FW 6022). Not detectable this way: a RAW port that refuses every
+        connect while the monitor reads Idle, and an idle port whose printer does not answer.
+        """
+        return CheckResult(ports=self._health(self.status()))
+
+    def reset_if_wedged(self) -> CheckResult:
+        """Run :meth:`check`; if a port is wedged, restart the device, wait for it, and check again.
+
+        A restart is the only measured cure (12 of 12; waiting a minute, a clean connect or a
+        printer reset cleared none of 9). It restarts every port, so it runs only on a wedge.
+
+        Raises:
+            DeviceUnavailableError: The device did not come back from the restart in time.
+        """
+        found = self.check()
+        if not found.wedged:
+            return found
+        self.reset(wait=True)
+        return CheckResult(ports=self.check().ports, restarted=True, before=found.ports)
 
     def read_config(self) -> DeviceConfig:
         """Return the device's configuration, typed."""
@@ -267,8 +315,14 @@ class PrintServer:
         whichever physical port the printer is routed to (``Ln_PROUT``), as an LPD job would.
         A job stays queued as "Printing / Direct Socket" while no printer takes it, so empty data
         is refused before anything is sent.
+
+        The configuration is read first: a printer on the serial port gets its data at the
+        port's baud rate, and a RAW connection opened before the device has passed a job on
+        loses its data and wedges the port. So the connection stays open until the job has
+        crossed the serial link, plus a margin; a parallel or USB printer gets no wait.
         """
-        self._ports.raw.send(self._endpoint, self._raw_port(logical_printer, data), data)
+        port = self._raw_port(logical_printer, data)
+        self._send_raw(self.read_config(), logical_printer, port, data)
 
     def print_raw_verified(
         self, logical_printer: int, data: bytes, *, timeout: float = DEFAULT_VERIFY_TIMEOUT
@@ -297,7 +351,8 @@ class PrintServer:
             DeviceUnavailableError: The device failed before or during the send, never after it.
         """
         port = self._raw_port(logical_printer, data)
-        routed = self.read_config().logical_printers[logical_printer - 1].port
+        config = self.read_config()
+        routed = config.logical_printers[logical_printer - 1].port
         host = self._endpoint.host
         before = self._last_read_until_idle(logical_printer, routed, timeout=timeout)
         if isinstance(before, DeviceUnavailableError):
@@ -305,26 +360,52 @@ class PrintServer:
                 f"{host}: nothing was sent, {routed.value} could not be read for {timeout:g} s: {before}"
             ) from before
         if before.state is not PortState.IDLE:
+            busy = self._judge(before, config)
             raise PortBusyError(
-                f"{host}: nothing was sent, {routed.value} is still {before.state.value} after {timeout:g} s "
-                f"({_occupancy(before)}); a restart clears a stuck port"
+                f"{host}: nothing was sent, {_busy_reason(busy, f'after {timeout:g} s', stuck='a stuck port')}"
             )
-        self._ports.raw.send(self._endpoint, port, data)
+        self._send_raw(config, logical_printer, port, data)
         # The data is sent from here on, so no failure may be a DeviceUnavailableError: a caller
-        # reads that as unsent, and a resend prints the job twice.
+        # reads that as unsent, and a resend prints the job twice. The probe a wedge check makes
+        # raises one, hence its own guard.
         after = self._last_read_until_idle(logical_printer, routed, timeout=timeout)
         if isinstance(after, DeviceUnavailableError):
             raise JobNotDrainedError(
                 f"{host}: the data was sent, but {routed.value} could not be read {timeout:g} s later: {after}"
             ) from after
         if after.state is not PortState.IDLE:
+            try:
+                busy = self._judge(after, config)
+            except DeviceUnavailableError:
+                busy = PortHealth(status=after, verdict=PortVerdict.PRINTING)
             raise JobNotDrainedError(
-                f"{host}: the data was sent, but {routed.value} is still {after.state.value} {timeout:g} s later "
-                f"({_occupancy(after)}); a restart clears the port"
+                f"{host}: the data was sent, but {_busy_reason(busy, f'{timeout:g} s later', stuck='the port')}"
             )
         return after
 
     # ------------------------------------------------------------------ helpers
+
+    def _send_raw(self, config: DeviceConfig, logical_printer: int, port: int, data: bytes) -> None:
+        routed = config.logical_printers[logical_printer - 1].port
+        self._ports.raw.send(self._endpoint, port, data, drain=link_drain_for(config, routed))
+
+    def _health(self, statuses: tuple[PortStatus, ...]) -> tuple[PortHealth, ...]:
+        """Judge every port; the configuration is read only when a port needs probing."""
+        if not any(is_wedge_candidate(status) for status in statuses):
+            return tuple(PortHealth(status=status, verdict=unprobed_verdict(status)) for status in statuses)
+        config = self.read_config()
+        return tuple(self._judge(status, config) for status in statuses)
+
+    def _judge(self, status: PortStatus, config: DeviceConfig) -> PortHealth:
+        if not is_wedge_candidate(status):
+            return PortHealth(status=status, verdict=unprobed_verdict(status))
+        ports = self._raw_ports_routed_to(status.port, config)
+        accepted = tuple(self._ports.raw.accepts_connection(self._endpoint, port) for port in ports)
+        return PortHealth(status=status, verdict=probed_verdict(accepted=accepted), probed=ports)
+
+    def _raw_ports_routed_to(self, port: PortId, config: DeviceConfig) -> tuple[int, ...]:
+        printers = config.logical_printers[:_RAW_LAST_PRINTER]
+        return tuple(self._raw_port_base + printer.number - 1 for printer in printers if printer.port is port)
 
     def _raw_port(self, logical_printer: int, data: bytes) -> int:
         if not data:
@@ -460,4 +541,18 @@ def _occupancy(status: PortStatus) -> str:
     return f"occupied by {status.occupied_by}, {status.bytes_serviced} bytes serviced"
 
 
-__all__ = ["DEFAULT_VERIFY_TIMEOUT", "ConfigWriteResult", "DevicePorts", "PrintServer"]
+def _busy_reason(health: PortHealth, when: str, *, stuck: str) -> str:
+    """Say why a port is still busy ``when``, naming a wedge or another client where a probe found one."""
+    status = health.status
+    seen = f"{status.state.value} {when} ({_occupancy(status)})"
+    if health.verdict is PortVerdict.WEDGED:
+        return (
+            f"{status.port.value} is wedged: it still reads {seen} and every RAW port routed there accepts a "
+            "connection; `check --reset --yes` clears it"
+        )
+    if health.verdict is PortVerdict.HELD:
+        return f"{status.port.value} is still {seen}; another client holds it"
+    return f"{status.port.value} is still {seen}; a restart clears {stuck}"
+
+
+__all__ = ["DEFAULT_VERIFY_TIMEOUT", "CheckResult", "ConfigWriteResult", "DevicePorts", "PrintServer"]

@@ -13,12 +13,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import rich_click as click
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, computed_field
 
 from sercomm_printserver.domain.errors import ConfirmationRequiredError
+from sercomm_printserver.domain.port_health import PortHealth, PortVerdict
 from sercomm_printserver.domain.port_status import PortStatus
 
 from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
+from ..exit_codes import ExitCode
 from ..typed_click import argument, option
 from ._device import DeviceFlags, device_options, run_device_command
 
@@ -39,6 +41,21 @@ class StatusReport(BaseModel, frozen=True):
 
     host: str
     ports: tuple[PortStatus, ...]
+
+
+class CheckReport(BaseModel, frozen=True):
+    """Answer of ``check``: :class:`~sercomm_printserver.application.print_server.CheckResult` plus the host."""
+
+    host: str
+    ports: tuple[PortHealth, ...]
+    restarted: bool
+    before: tuple[PortHealth, ...]
+
+    @computed_field
+    @property
+    def wedged(self) -> bool:
+        """Whether a port is (still) wedged."""
+        return any(health.verdict is PortVerdict.WEDGED for health in self.ports)
 
 
 class ActionReport(BaseModel, frozen=True):
@@ -140,6 +157,69 @@ def cli_status(
         work=work,
         human=_render_status,
     )
+
+
+@click.command("check", context_settings=CLICK_CONTEXT_SETTINGS)
+@option(
+    "--reset",
+    is_flag=True,
+    default=False,
+    help="Restart the device if a port is wedged, then check again (needs --yes).",
+)
+@option("--yes", is_flag=True, default=False, help="Confirm the restart --reset may make.")
+@device_options
+@click.pass_context
+def cli_check(
+    ctx: click.Context,
+    *,
+    reset: bool,
+    yes: bool,
+    host: str | None,
+    timeout: float | None,
+    as_json: bool,
+    as_json_bare: bool,
+) -> None:
+    """Find wedged ports: busy with no client, curable only by a restart. Exit 3 on a wedge.
+
+    A port reading Printing / Direct Socket / 0 bytes serviced gets a bare connect (no data) to
+    each RAW port routed there: a wedged port accepts it, a port another client holds refuses.
+    """
+
+    def work(server: PrintServer) -> CheckReport:
+        if reset and not yes:
+            raise ConfirmationRequiredError("check --reset restarts the device when a port is wedged; pass --yes")
+        result = server.reset_if_wedged() if reset else server.check()
+        return CheckReport(
+            host=server.endpoint.host, ports=result.ports, restarted=result.restarted, before=result.before
+        )
+
+    run_device_command(
+        ctx,
+        command=CommandName.CHECK,
+        flags=_flags(host, timeout, as_json, as_json_bare),
+        work=work,
+        human=_render_check,
+        outcome=lambda report: ExitCode.PORT_WEDGED if report.wedged else ExitCode.SUCCESS,
+    )
+
+
+def _render_check(report: CheckReport) -> str:
+    lines: list[str] = []
+    if report.restarted:
+        lines.append(f"Restarted {report.host}: {_wedged_ports(report.before)} were wedged. Checked again:")
+    lines.append(f"{'Port':<5} {'State':<9} {'Verdict':<20} Probed")
+    for health in report.ports:
+        verdict = "printing (unprobed)" if health.verdict is PortVerdict.UNPROBED else health.verdict.value
+        probed = ", ".join(str(port) for port in health.probed) or "-"
+        lines.append(f"{health.status.port.value:<5} {health.status.state.value:<9} {verdict:<20} {probed}")
+    if report.wedged:
+        advice = "a restart did not clear it" if report.restarted else "`check --reset --yes` restarts the device"
+        lines.append(f"Wedged: {_wedged_ports(report.ports)}; {advice}.")
+    return "\n".join(lines)
+
+
+def _wedged_ports(ports: tuple[PortHealth, ...]) -> str:
+    return ", ".join(health.status.port.value for health in ports if health.verdict is PortVerdict.WEDGED)
 
 
 def _render_status(report: StatusReport) -> str:
@@ -380,9 +460,11 @@ def _render_action(report: ActionReport) -> str:
 
 __all__ = [
     "ActionReport",
+    "CheckReport",
     "FirmwareReport",
     "QueueReport",
     "StatusReport",
+    "cli_check",
     "cli_device_info",
     "cli_factory_default",
     "cli_firmware",

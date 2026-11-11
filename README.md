@@ -162,6 +162,7 @@ sercomm-printserver discover [--network 192.0.2.0/24]   # reads the FTP greeting
 sercomm-printserver device-info                         # PSINF: names, MAC, firmware, addresses
 sercomm-printserver firmware                            # firmware version, no login needed
 sercomm-printserver status                              # port state and printer status
+sercomm-printserver check                               # wedged ports (see "A wedged port"); exit 3 on one
 sercomm-printserver queue L1 [--long]                   # LPD queue state; sends no print data
 ```
 
@@ -232,6 +233,33 @@ page came out.
 sercomm-printserver print raw 3 label.dpl --verify
 ```
 
+`print raw` reads the device's configuration first (one FTP session). A printer on the serial
+port gets its data at the port's baud rate, and a RAW connection opened before the device has
+passed the previous job on loses its data and wedges the port. So for a printer routed to `SP` the
+connection stays open until the job has crossed the serial line (bytes / (baud / bits per frame),
+plus 0.25 s), about 2.4 s for 2 KB at 9600 8N1. A printer on a parallel or USB port gets no wait.
+
+### A wedged port
+
+A port can be left reading `Printing`, occupied by `Direct Socket`, 0 bytes serviced, with no
+client connected: a RAW connection that lost its data (another program opened one too early, or a
+job was sent while the device still passed the previous one on). Every later job to it is
+accepted and lost. `status` cannot tell this from a client that holds the port, since an open
+connection reads the same. `check` can: it makes a bare connect, with no data, to each RAW port
+routed there. A wedged port accepts it, a held one refuses it. A port counts as wedged only if
+every such connect got in, so a live job is never reported as one.
+
+```bash
+sercomm-printserver check                       # idle / printing / held / wedged per port; exit 3 on a wedge
+sercomm-printserver check --reset --yes         # restart only if a port is wedged, then check again
+```
+
+Only a restart clears a wedge, and it restarts every port, so `--reset` acts only when a port is
+wedged and exits 0 only once the check after the restart finds none. `print raw --verify` names a
+wedge, or another client, in its exit 75 and 110 messages. Not found by `check`: a RAW port that
+refuses every connect while `status` reads it idle (`print raw` reports that one when it cannot
+connect), and an idle port whose printer does not answer.
+
 ### A device without a usable address
 
 The device answers any address this host maps to its MAC, which is how the vendor manuals
@@ -267,6 +295,7 @@ any JSON is written: exit 2 and a usage message on stderr. Exit codes do not dep
 | 0         | done                                                                         |
 | 1         | any other failure, such as an ARP table this host could not change           |
 | 2         | usage error: a missing or invalid option or argument                         |
+| 3         | `check`: a port is wedged (with `--reset`: still wedged after the restart)   |
 | 13        | this host lacks a right (`arp`: the ARP table or sending an ARP request;     |
 |           | `config-deploy`: a system dir)                                               |
 | 22        | invalid argument                                                             |

@@ -122,6 +122,7 @@ def cli(
 def _register_commands() -> None:
     from .commands import (  # noqa: PLC0415 - deferred: breaks the root<->commands circular import (see above)
         cli_arp,
+        cli_check,
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
@@ -148,6 +149,7 @@ def _register_commands() -> None:
         cli_firmware,
         cli_device_info,
         cli_status,
+        cli_check,
         cli_queue,
         cli_device_config,
         cli_reset,

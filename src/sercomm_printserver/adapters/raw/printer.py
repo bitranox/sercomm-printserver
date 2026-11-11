@@ -3,10 +3,16 @@
 Device behaviour this adapter is shaped by (measured on a PS301, firmware 6022):
 
 * Data sent while no printer takes it stays queued: the port reads ``Printing / Direct
-  Socket`` until a restart and blocks every other job. The same state was once seen after a
-  port scan; a single connect closed at once left the ports idle, so the cause of that one is
-  open. ``send`` therefore refuses empty data before it connects, and never opens a
-  connection it does not write to.
+  Socket`` until a restart and blocks every other job. ``send`` therefore refuses empty data
+  before it connects. A bare connect closed at once leaves the port idle (measured 2026-11-10:
+  clean closes, 20-connect bursts and resets all left it idle), which ``accepts_connection``
+  relies on.
+* The device takes a whole job at once and passes it on at the speed of the printer's link. A
+  NEW connection opened before that is finished loses its data and leaves the port reading
+  ``Printing / Direct Socket`` with 0 bytes serviced until a restart. Given the link, ``send``
+  keeps the connection fully open until every byte has had time to cross it, plus a margin,
+  and only then half-closes. A half-close protects nothing: the device closes about 0.07 s
+  after the end of stream, long before the printer has the data.
 * The end of a job is the end of the stream. The adapter half-closes its side
   (``shutdown(SHUT_WR)``) after the last byte, then waits for the device to close, so the
   device sees a clean end of job rather than a dropped connection.
@@ -30,7 +36,10 @@ from typing import TYPE_CHECKING, Final
 from ...domain.errors import DeviceUnavailableError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ...domain.endpoint import DeviceEndpoint
+    from ...domain.link import LinkDrain
 
 _SEND_CHUNK: Final = 64 * 1024
 _RECV_SIZE: Final = 4096
@@ -49,7 +58,11 @@ _REFUSED_RETRY_INTERVAL: Final = 0.25
 def _check_arguments(port: int, data: bytes) -> None:
     """Refuse what must never reach the device, before any connection is opened."""
     if not data:
-        raise ValueError("refusing to send empty data: a bare connect blocks the RAW port for minutes")
+        raise ValueError("refusing to send empty data: an empty job can leave the RAW port blocked for minutes")
+    _check_port(port)
+
+
+def _check_port(port: int) -> None:
     if not _MIN_PORT <= port <= _MAX_PORT:
         raise ValueError(f"port must be {_MIN_PORT}..{_MAX_PORT}, got {port}")
 
@@ -63,7 +76,7 @@ def _connect(host: str, port: int, timeout: float) -> socket.socket:
     clears it. A port that is simply closed refuses the same way, hence "may".
     """
     try:
-        return _connect_retrying_refusals(host, port, timeout)
+        return connect_retrying_refusals(host, port, timeout)
     except ConnectionRefusedError as exc:
         window = min(timeout, _REFUSED_RETRY_SECONDS)
         raise DeviceUnavailableError(
@@ -76,13 +89,26 @@ def _connect(host: str, port: int, timeout: float) -> socket.socket:
         raise DeviceUnavailableError(f"{host}:{port} could not be reached: {exc}") from exc
 
 
-def _connect_retrying_refusals(host: str, port: int, timeout: float) -> socket.socket:
+def connect_retrying_refusals(host: str, port: int, timeout: float) -> socket.socket:
     """Connect, retrying a refused connect until the retry window closes.
 
     The last attempt catches nothing, so a port that keeps refusing raises its own
     ``ConnectionRefusedError`` and the caller's message names the real cause. Windows retries a
     refused SYN itself and reports the refusal only after about 2 s (measured 2.07 s), so there a
     ``timeout`` below that ends each attempt as a plain timeout, which is not retried.
+
+    Args:
+        host: Address of the print server.
+        port: TCP port to connect to.
+        timeout: Seconds per connect attempt; the retry window is the shorter of this and
+            the module's refusal window.
+
+    Returns:
+        The connected socket, with ``timeout`` set.
+
+    Raises:
+        ConnectionRefusedError: The port refused every attempt in the window.
+        OSError: Any other connect failure, at once.
     """
     deadline = time.monotonic() + min(timeout, _REFUSED_RETRY_SECONDS)
     while time.monotonic() + _REFUSED_RETRY_INTERVAL < deadline:
@@ -101,7 +127,34 @@ def _connect_unless_refused(host: str, port: int, timeout: float) -> socket.sock
         return None
 
 
-def _transmit(sock: socket.socket, data: bytes, *, address: str) -> None:
+class _DrainClock:
+    """When the device has passed on every byte the socket took so far, at the link's rate.
+
+    Counted per send from the bytes the socket accepted, so the wait never covers bytes that did
+    not leave this host. Bytes cross the link while later ones are still being sent, so each
+    send's share starts when it was sent or when the previous share ends, whichever is later.
+    """
+
+    def __init__(self, drain: LinkDrain | None, clock: Callable[[], float]) -> None:
+        self._drain = drain
+        self._clock = clock
+        self._carried_at: float | None = None
+
+    def note(self, size: int) -> None:
+        if self._drain is None:
+            return
+        now = self._clock()
+        start = now if self._carried_at is None else max(now, self._carried_at)
+        self._carried_at = start + size / self._drain.bytes_per_second
+
+    def remaining(self) -> float:
+        """Seconds still to wait, margin included; 0 without a link."""
+        if self._drain is None or self._carried_at is None:
+            return 0.0
+        return max(0.0, self._carried_at + self._drain.margin - self._clock())
+
+
+def _transmit(sock: socket.socket, data: bytes, *, address: str, carried: _DrainClock) -> None:
     """Send every byte, counting them so a broken connection says how far the job got.
 
     ``sendall`` would hide that count, which is what tells the caller whether a partial job
@@ -111,7 +164,9 @@ def _transmit(sock: socket.socket, data: bytes, *, address: str) -> None:
     sent = 0
     try:
         while sent < len(view):
-            sent += sock.send(view[sent : sent + _SEND_CHUNK])
+            taken = sock.send(view[sent : sent + _SEND_CHUNK])
+            sent += taken
+            carried.note(taken)
     except OSError as exc:
         raise DeviceUnavailableError(
             f"{address} broke the connection after {sent} of {len(view)} bytes were sent: {exc}"
@@ -143,6 +198,10 @@ def _finish(sock: socket.socket, *, address: str, total: int) -> None:
 class RawPrinter:
     """``RawPort`` over a plain TCP socket, one connection per call.
 
+    Args:
+        sleep: The pause the drain wait sleeps with (injected so tests do not wait).
+        clock: The monotonic clock the drain wait is timed with.
+
     Example:
         >>> from sercomm_printserver.application.ports import RawPort
         >>> from sercomm_printserver.domain.endpoint import DeviceEndpoint
@@ -150,11 +209,17 @@ class RawPrinter:
         >>> RawPrinter().send(DeviceEndpoint(host="192.0.2.52"), 9100, b"")
         Traceback (most recent call last):
         ...
-        ValueError: refusing to send empty data: a bare connect blocks the RAW port for minutes
+        ValueError: refusing to send empty data: an empty job can leave the RAW port blocked for minutes
     """
 
-    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes) -> None:
-        """Connect to ``port``, send ``data``, half-close and wait for the device to close.
+    def __init__(
+        self, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._sleep = sleep
+        self._clock = clock
+
+    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes, *, drain: LinkDrain | None = None) -> None:
+        """Connect to ``port``, send ``data``, wait for the link, half-close, wait for the device to close.
 
         Args:
             endpoint: The device; ``host`` and ``timeout`` are used. ``timeout`` bounds each
@@ -162,6 +227,10 @@ class RawPrinter:
                 connect is retried for up to 3 s, never longer than ``timeout``.
             port: The RAW TCP port (9100-9102 or 4010/4020/4030 for L1..L3).
             data: The print data, sent unchanged.
+            drain: The link the device passes the job on over. With it the connection stays
+                open until the bytes the socket took have had time to cross it, plus its
+                margin; without it the job ends as soon as the last byte is sent. A send that
+                fails raises at once and does not wait.
 
         Raises:
             ValueError: ``data`` is empty or ``port`` is outside 1..65535; nothing is sent.
@@ -172,9 +241,36 @@ class RawPrinter:
         """
         _check_arguments(port, data)
         address = f"{endpoint.host}:{port}"
+        carried = _DrainClock(drain, self._clock)
         with _connect(endpoint.host, port, endpoint.timeout) as sock:
-            _transmit(sock, data, address=address)
+            _transmit(sock, data, address=address, carried=carried)
+            wait = carried.remaining()
+            if wait > 0:
+                self._sleep(wait)
             _finish(sock, address=address, total=len(data))
 
+    def accepts_connection(self, endpoint: DeviceEndpoint, port: int) -> bool:
+        """Whether ``port`` accepts a connection; the connection is closed at once, with no data.
 
-__all__ = ["RawPrinter"]
+        A refused connect is retried for up to 3 s (never longer than ``timeout``), because the
+        port refuses for a moment after any job closed; only a refusal that outlasts that
+        window answers False. A PS301 refuses a second connection outright while a client holds
+        the port, and accepts one while the port is stuck on a lost job (measured, FW 6022).
+
+        Raises:
+            ValueError: ``port`` is outside 1..65535.
+            DeviceUnavailableError: The device could not be reached for another reason.
+        """
+        _check_port(port)
+        try:
+            sock = connect_retrying_refusals(endpoint.host, port, endpoint.timeout)
+        except ConnectionRefusedError:
+            return False
+        except (OSError, UnicodeError) as exc:
+            # UnicodeError: the IDNA codec refuses a malformed host name before any socket exists.
+            raise DeviceUnavailableError(f"{endpoint.host}:{port} could not be reached: {exc}") from exc
+        sock.close()
+        return True
+
+
+__all__ = ["RawPrinter", "connect_retrying_refusals"]

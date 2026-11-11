@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from ...domain.endpoint import DeviceEndpoint, PrintJob
+    from ...domain.link import LinkDrain
 
 _MASKED_MAIL_PASSWORD: Final = re.compile(r"^(4102 MAIL_PAS:).*$", re.MULTILINE)
 #: How long the device has run when a fake starts: far longer than any wait in a test.
@@ -68,6 +69,14 @@ class FakeDevice:
         self.actions: list[DeviceAction] = []
         self.lpd_jobs: list[tuple[str, PrintJob]] = []
         self.raw_sends: list[tuple[int, bytes]] = []
+        #: The link each RAW send was told to wait for, in the order of ``raw_sends``.
+        self.raw_drains: list[LinkDrain | None] = []
+        #: RAW ports a connect probe was made to, in order.
+        self.raw_probes: list[int] = []
+        #: RAW ports that refuse a connect probe, as one a client holds does.
+        self.raw_refusing: set[int] = set()
+        #: Every virtual file read, in order.
+        self.retrieved: list[ReadableFile] = []
         self.store_rewrites: dict[str, str] = {}
         self._clock = clock
         self._booted_at = clock() - _START_UPTIME
@@ -96,6 +105,7 @@ class FakeDevice:
     def retrieve(self, endpoint: DeviceEndpoint, name: ReadableFile) -> bytes:
         """Return CONFIG (mail password masked, as the device does) or PSINF."""
         self._check_reachable(endpoint)
+        self.retrieved.append(name)
         if name is ReadableFile.CONFIG:
             return _MASKED_MAIL_PASSWORD.sub(r"\g<1>**********", self.config).encode("ascii")
         return self.psinf.encode("ascii")
@@ -178,10 +188,17 @@ class FakeDevice:
 
     # RawPort ---------------------------------------------------------------
 
-    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes) -> None:
-        """Record the bytes sent to ``port``."""
+    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes, *, drain: LinkDrain | None = None) -> None:
+        """Record the bytes sent to ``port`` and the link the send waited for."""
         self._check_reachable(endpoint)
         self.raw_sends.append((port, data))
+        self.raw_drains.append(drain)
+
+    def accepts_connection(self, endpoint: DeviceEndpoint, port: int) -> bool:
+        """Record the probe; every port accepts unless it is in ``raw_refusing``."""
+        self._check_reachable(endpoint)
+        self.raw_probes.append(port)
+        return port not in self.raw_refusing
 
     # ------------------------------------------------------------------------
 

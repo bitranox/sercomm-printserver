@@ -15,6 +15,7 @@ from __future__ import annotations
 from .arp import cli_arp
 from .config import cli_config, cli_config_deploy, cli_config_generate_examples
 from .device import (
+    cli_check,
     cli_device_info,
     cli_factory_default,
     cli_firmware,
@@ -31,6 +32,7 @@ from .printing import cli_print
 
 __all__ = [
     "cli_arp",
+    "cli_check",
     "cli_config",
     "cli_config_deploy",
     "cli_config_generate_examples",

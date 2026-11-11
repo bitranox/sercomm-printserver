@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from .printer import RawPrinter
+from .printer import RawPrinter, connect_retrying_refusals
 
-__all__ = ["RawPrinter"]
+__all__ = ["RawPrinter", "connect_retrying_refusals"]

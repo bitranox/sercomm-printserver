@@ -39,6 +39,7 @@ class CommandName(str, Enum):
     FIRMWARE = "firmware"
     DEVICE_INFO = "device-info"
     STATUS = "status"
+    CHECK = "check"
     QUEUE = "queue"
     RESET = "reset"
     FACTORY_DEFAULT = "factory-default"

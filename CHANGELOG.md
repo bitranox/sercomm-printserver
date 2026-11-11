@@ -6,6 +6,34 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Added
+
+- `check` (library: `PrintServer.check`) tells a wedged port from a busy one. A port reading
+  `Printing`, occupied by `Direct Socket`, 0 bytes serviced, gets a bare connect with no data on
+  every RAW port routed to it: when all of them accept, the port is `wedged` (every later job to it
+  is lost until a restart); when one refuses, a client `held` it. Other ports read `idle` or
+  `printing`. It exits 3 when a port is wedged, 0 otherwise.
+- `check --reset --yes` (library: `PrintServer.reset_if_wedged`) restarts the device only when a
+  port is wedged, waits for it, and checks again; it exits 3 when the port is still wedged.
+  `--reset` without `--yes` is refused.
+- `scripts/ps301_wedge_probe.py` reproduces the wedge on a real device, with and without the
+  drain wait, in alternating trials, and logs each one as a JSON line. Every trial prints its job,
+  so it runs only with `--confirm-print`.
+
+### Changed
+
+- `print raw` reads the device configuration first (one FTP session, about 1.2 s) and, for a
+  logical printer routed to the serial port `SP`, keeps the connection open until the job has
+  crossed the serial line at the port's baud rate (plus 0.25 s) before it closes. A RAW connection
+  opened while the device still passes the previous job on loses its data and wedges the port; a
+  printer on a parallel or USB port gets no wait.
+- `print raw --verify` names the cause in its exit 75 and 110 messages: a wedged port
+  (`check --reset --yes` clears it) or another client holding the port. A port still printing
+  keeps the old wording.
+- The empty-data refusal of `print raw` now reads "an empty job can leave the RAW port blocked
+  for minutes": a bare connect with no data was measured harmless.
+- `sercomm_printserver.adapters.raw` exports `connect_retrying_refusals`.
+
 ### Fixed
 
 - `display_config` takes its `output_format` as the plain value too (`"json"`), as an untyped caller passes it, instead of failing with `AttributeError: 'str' object has no attribute 'value'`.

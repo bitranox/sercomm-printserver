@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sercomm_printserver.adapters.cli import root as cli_root
+from sercomm_printserver.adapters.cli.commands.device import CheckReport
 from sercomm_printserver.adapters.memory.device import FakeDevice, FakeTftp
 from sercomm_printserver.application.print_server import DevicePorts, PrintServer
 from sercomm_printserver.composition import build_testing
@@ -422,7 +423,8 @@ def test_print_raw_verify_exits_75_and_sends_nothing_when_the_port_stays_busy_be
     assert result.exit_code == 75
     envelope = _json(result.stdout)
     assert (envelope["ok"], envelope["error"]) == (False, "PortBusyError")
-    assert "nothing was sent, SP is still Printing" in str(envelope["message"])
+    # The fake accepts the probe of 9102, so the refusal names the wedge.
+    assert "nothing was sent, SP is wedged" in str(envelope["message"])
     assert device.raw_sends == []
 
 
@@ -442,7 +444,7 @@ def test_print_raw_verify_exits_110_when_the_port_stays_busy_after_the_send(
     assert result.exit_code == 110
     envelope = _json(result.stdout)
     assert (envelope["ok"], envelope["error"]) == (False, "JobNotDrainedError")
-    assert "the data was sent, but SP is still Printing" in str(envelope["message"])
+    assert "the data was sent, but SP is wedged" in str(envelope["message"])
     assert device.raw_sends == [(9102, b"x")]
 
 
@@ -457,3 +459,106 @@ def test_print_raw_verify_timeout_without_verify_is_a_usage_error(
     assert result.exit_code == 2
     assert "--verify-timeout needs --verify" in result.stderr
     assert device.raw_sends == []
+
+
+# ---------------------------------------------------------------- check
+
+
+def test_check_reports_every_port_and_exits_3_on_a_wedge(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    # The dumped monitor shows all three ports Printing / Direct Socket / 0 bytes; the fake
+    # accepts every probe, so each one is wedged.
+    result = cli_runner.invoke(cli_root.cli, ["check", *_HOST], obj=services)
+
+    assert result.exit_code == 3
+    rows = [line.split() for line in result.output.splitlines()[1:4]]
+    assert [(row[0], row[2]) for row in rows] == [("P1", "wedged"), ("P2", "wedged"), ("SP", "wedged")]
+    assert "check --reset --yes" in result.output
+    assert device.raw_probes == [9100, 9101, 9102]
+    assert device.raw_sends == []
+    assert device.actions == []
+
+
+def test_check_answers_as_an_envelope_that_is_not_ok_on_a_wedge(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.raw_refusing = {9100, 9101}
+
+    result = cli_runner.invoke(cli_root.cli, ["check", *_HOST, "--json-bare"], obj=services)
+
+    envelope = _json(result.output)
+    assert result.exit_code == 3
+    assert (envelope["ok"], envelope["command"]) == (False, "check")
+    data = envelope["data"]
+    assert isinstance(data, dict)
+    assert data["wedged"] is True
+    report = CheckReport.model_validate(data)
+    assert report.restarted is False
+    assert [(port.status.port.value, port.verdict.value, port.probed) for port in report.ports] == [
+        ("P1", "held", (9100,)),
+        ("P2", "held", (9101,)),
+        ("SP", "wedged", (9102,)),
+    ]
+
+
+def test_check_of_a_healthy_device_exits_0(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.monitor_text = _IDLE_PORTS
+
+    result = cli_runner.invoke(cli_root.cli, ["check", *_HOST, "--json-bare"], obj=services)
+
+    assert result.exit_code == 0
+    assert _json(result.output)["ok"] is True
+    assert device.raw_probes == []
+
+
+def test_check_reset_without_yes_exits_77_and_probes_nothing(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    result = cli_runner.invoke(cli_root.cli, ["check", "--reset", *_HOST], obj=services)
+
+    assert result.exit_code == 77
+    assert device.actions == []
+    assert device.raw_probes == []
+
+
+def test_check_reset_restarts_a_wedged_device_and_exits_0_once_it_is_clear(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.restart_after_reads = 1
+    device.monitor_replies = [device.monitor_text, _IDLE_PORTS]
+
+    result = cli_runner.invoke(cli_root.cli, ["check", "--reset", "--yes", *_HOST], obj=services)
+
+    assert result.exit_code == 0, result.output
+    assert device.actions == [DeviceAction.RESET]
+    assert "restarted" in result.output.lower()
+    assert "P1, P2, SP" in result.output
+
+
+def test_check_reset_exits_3_when_the_wedge_survives_the_restart(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.restart_after_reads = 1
+
+    result = cli_runner.invoke(cli_root.cli, ["check", "--reset", "--yes", *_HOST, "--json-bare"], obj=services)
+
+    envelope = _json(result.output)
+    data = envelope["data"]
+    assert isinstance(data, dict)
+    assert result.exit_code == 3
+    assert (envelope["ok"], data["restarted"], data["wedged"]) == (False, True, True)
+    assert device.actions == [DeviceAction.RESET]
+
+
+def test_check_reset_leaves_a_device_with_nothing_wedged_alone(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.raw_refusing = {9100, 9101, 9102}
+
+    result = cli_runner.invoke(cli_root.cli, ["check", "--reset", "--yes", *_HOST], obj=services)
+
+    assert result.exit_code == 0
+    assert device.actions == []
