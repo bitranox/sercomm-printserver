@@ -33,6 +33,7 @@ from ..domain.errors import (
 from ..domain.link import link_drain_for
 from ..domain.port_health import PortHealth, PortVerdict, is_wedge_candidate, probed_verdict, unprobed_verdict
 from ..domain.port_status import PortState, PortStatus, parse_monitor
+from ..domain.print_data import PrintData
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -304,11 +305,15 @@ class PrintServer:
 
     # ------------------------------------------------------------------ printing
 
-    def print_lpd(self, queue: str, job: PrintJob) -> None:
-        """Send ``job`` to the LPD queue ``queue`` (``L1``..``L8``)."""
-        self._ports.lpd.submit(self._endpoint, queue, job)
+    def print_lpd(self, queue: str, job: PrintJob) -> int:
+        """Send ``job`` to the LPD queue ``queue`` (``L1``..``L8``); return the bytes of data sent.
 
-    def print_raw(self, logical_printer: int, data: bytes) -> None:
+        Data of unknown size (a pipe) is spooled to a temporary file first, because LPD sends the
+        size ahead of the data.
+        """
+        return self._ports.lpd.submit(self._endpoint, queue, job)
+
+    def print_raw(self, logical_printer: int, data: PrintData | bytes) -> int:
         """Send ``data`` to the RAW port of logical printer ``logical_printer`` (1-3).
 
         The RAW port belongs to the logical printer, not to a physical port: the data goes to
@@ -320,12 +325,19 @@ class PrintServer:
         port's baud rate, and a RAW connection opened before the device has passed a job on
         loses its data and wedges the port. So the connection stays open until the job has
         crossed the serial link, plus a margin; a parallel or USB printer gets no wait.
+
+        The data is sent piece by piece, so a large file never sits in memory whole. For a
+        stream of unknown size (a pipe) the first piece is read up front, to refuse an empty job
+        before the device is contacted.
+
+        Returns:
+            The number of bytes sent.
         """
-        port = self._raw_port(logical_printer, data)
-        self._send_raw(self.read_config(), logical_printer, port, data)
+        job, port = self._raw_job(logical_printer, data)
+        return self._send_raw(self.read_config(), logical_printer, port, job)
 
     def print_raw_verified(
-        self, logical_printer: int, data: bytes, *, timeout: float = DEFAULT_VERIFY_TIMEOUT
+        self, logical_printer: int, data: PrintData | bytes, *, timeout: float = DEFAULT_VERIFY_TIMEOUT
     ) -> PortStatus:
         """Wait until the routed port is idle, send ``data``, and wait until it is idle again.
 
@@ -337,7 +349,8 @@ class PrintServer:
 
         Args:
             logical_printer: The logical printer (1-3).
-            data: The print data.
+            data: The print data, sent piece by piece (plain bytes are wrapped); the bytes sent
+                are counted in ``PrintData.bytes_read`` for a caller that needs a pipe's size.
             timeout: Seconds each of the two waits may take, so the worst case is twice this.
 
         Returns:
@@ -350,7 +363,7 @@ class PrintServer:
             JobNotDrainedError: The data was sent and the port stayed busy or could not be read.
             DeviceUnavailableError: The device failed before or during the send, never after it.
         """
-        port = self._raw_port(logical_printer, data)
+        job, port = self._raw_job(logical_printer, data)
         config = self.read_config()
         routed = config.logical_printers[logical_printer - 1].port
         host = self._endpoint.host
@@ -364,7 +377,7 @@ class PrintServer:
             raise PortBusyError(
                 f"{host}: nothing was sent, {_busy_reason(busy, f'after {timeout:g} s', stuck='a stuck port')}"
             )
-        self._send_raw(config, logical_printer, port, data)
+        self._send_raw(config, logical_printer, port, job)
         # The data is sent from here on, so no failure may be a DeviceUnavailableError: a caller
         # reads that as unsent, and a resend prints the job twice. The probe a wedge check makes
         # raises one, hence its own guard.
@@ -385,9 +398,9 @@ class PrintServer:
 
     # ------------------------------------------------------------------ helpers
 
-    def _send_raw(self, config: DeviceConfig, logical_printer: int, port: int, data: bytes) -> None:
+    def _send_raw(self, config: DeviceConfig, logical_printer: int, port: int, job: PrintData) -> int:
         routed = config.logical_printers[logical_printer - 1].port
-        self._ports.raw.send(self._endpoint, port, data, drain=link_drain_for(config, routed))
+        return self._ports.raw.send(self._endpoint, port, job, drain=link_drain_for(config, routed))
 
     def _health(self, statuses: tuple[PortStatus, ...]) -> tuple[PortHealth, ...]:
         """Judge every port; the configuration is read only when a port needs probing."""
@@ -407,9 +420,18 @@ class PrintServer:
         printers = config.logical_printers[:_RAW_LAST_PRINTER]
         return tuple(self._raw_port_base + printer.number - 1 for printer in printers if printer.port is port)
 
-    def _raw_port(self, logical_printer: int, data: bytes) -> int:
-        if not data:
+    def _raw_job(self, logical_printer: int, data: PrintData | bytes) -> tuple[PrintData, int]:
+        """Refuse an empty job or a printer without a RAW port; return the job to send and its port.
+
+        An empty job is refused first, before the device is contacted: data that no printer
+        takes leaves the port busy. A pipe has no size, so its first piece is read to tell.
+        """
+        job = (data if isinstance(data, PrintData) else PrintData.of(data)).unless_empty()
+        if job is None:
             raise ValueError("refusing to open a RAW print port without data to send")
+        return job, self._raw_port(logical_printer)
+
+    def _raw_port(self, logical_printer: int) -> int:
         port = self._raw_port_base + logical_printer - 1
         if logical_printer < 1 or port > _RAW_LAST_PORT:
             raise ValueError(f"logical printer {logical_printer} has no RAW port")

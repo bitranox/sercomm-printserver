@@ -16,6 +16,7 @@ from pydantic import BaseModel, model_validator
 from sercomm_printserver.application.print_server import DEFAULT_VERIFY_TIMEOUT
 from sercomm_printserver.domain.config_types import PortId
 from sercomm_printserver.domain.endpoint import PrintJob
+from sercomm_printserver.domain.print_data import PrintData
 
 from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import argument, option
@@ -111,11 +112,10 @@ def cli_print_lpd(
     """Send SOURCE (a file, or - for stdin) to LPD queue QUEUE (L1..L8)."""
 
     def work(server: PrintServer) -> PrintReport:
-        job = PrintJob(data=source.read(), name=job_name)
-        server.print_lpd(queue, job)
-        return PrintReport(
-            host=server.endpoint.host, transport=PrintTransport.LPD, queue=queue, printer=None, size=len(job.data)
-        )
+        job = PrintJob(data=PrintData.from_stream(source), name=job_name)
+        size = server.print_lpd(queue, job)
+        host = server.endpoint.host
+        return PrintReport(host=host, transport=PrintTransport.LPD, queue=queue, printer=None, size=size)
 
     run_device_command(
         ctx, command=CommandName.PRINT_LPD, flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render
@@ -158,15 +158,21 @@ def cli_print_raw(
         raise click.UsageError("--verify-timeout needs --verify")
 
     def work(server: PrintServer) -> PrintReport:
-        data = source.read()
-        fields = PrintReport(
-            host=server.endpoint.host, transport=PrintTransport.RAW, queue=None, printer=printer, size=len(data)
-        )
+        # Streamed, never read whole: a pipe's only size is the count of bytes that went out.
+        data = PrintData.from_stream(source)
+        host = server.endpoint.host
         if not verify:
-            server.print_raw(printer, data)
-            return fields
+            size = server.print_raw(printer, data)
+            return PrintReport(host=host, transport=PrintTransport.RAW, queue=None, printer=printer, size=size)
         status = server.print_raw_verified(printer, data, timeout=verify_timeout or DEFAULT_VERIFY_TIMEOUT)
-        return VerifiedPrintReport(**fields.model_dump(), idle_port=status.port)
+        return VerifiedPrintReport(
+            host=host,
+            transport=PrintTransport.RAW,
+            queue=None,
+            printer=printer,
+            size=data.bytes_read,
+            idle_port=status.port,
+        )
 
     run_device_command(
         ctx, command=CommandName.PRINT_RAW, flags=_flags(host, timeout, as_json, as_json_bare), work=work, human=_render

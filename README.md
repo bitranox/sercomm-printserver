@@ -221,6 +221,14 @@ an LPD job. Data that no printer takes stays queued and keeps the port busy unti
 there fails after `--timeout` with exit 76, because the device holds back its acknowledgement.
 `print lpd` names the job `job` unless `--job-name` says otherwise.
 
+Both commands stream the data: a job of any size is read and sent in pieces of 64 KiB, so it never
+sits in memory whole. LPD puts the size in front of the data, so `print lpd` from a pipe first
+copies the data to a temporary file (in `TMPDIR`); when that fails, for example on a full disk,
+it exits 74 before the device is contacted. A file that grows or shrinks while `print lpd` sends
+it stops the job without its end-of-file byte and exits 65: an LPD server discards such a job, but
+this device prints data as it arrives, so part of it may be on paper. The reported size is the
+number of bytes sent, also for a pipe.
+
 `print raw` succeeds as soon as the device took the bytes, whatever the port is doing: a port held
 by another job accepts a new one, and a job that blocks the port afterwards goes unnoticed. With
 `--verify` it waits for the port the printer is routed to to read `Idle`, sends, and waits again,
@@ -299,7 +307,9 @@ any JSON is written: exit 2 and a usage message on stderr. Exit codes do not dep
 | 13        | this host lacks a right (`arp`: the ARP table or sending an ARP request;     |
 |           | `config-deploy`: a system dir)                                               |
 | 22        | invalid argument                                                             |
+| 65        | `print lpd`: the file changed size while it was sent; do not resend blindly  |
 | 69        | the device did not answer, or did not come back after a restart              |
+| 74        | `print lpd`: a pipe could not be spooled to `TMPDIR`, nothing was sent       |
 | 75        | `print raw --verify`: the port stayed busy before the send, nothing was sent |
 | 76        | the device answered something this firmware family does not send, or stored  |
 |           | a value other than the one sent (rare: run the command again)                |
@@ -315,6 +325,18 @@ from sercomm_printserver import DeviceEndpoint, PrintJob, open_print_server
 server = open_print_server(DeviceEndpoint(host="192.0.2.52"))
 server.print_lpd("L1", PrintJob(data=b"hello\r\n\f", name="greeting"))
 print(server.info().firmware_version)
+```
+
+A big job is streamed from where it lies instead of being read into memory: `PrintData.from_path`
+reads a file (re-opened on every send), `PrintData.from_stream` an open binary stream such as
+`sys.stdin.buffer` (readable once). `PrintJob`, `print_raw` and `print_raw_verified` take a
+`PrintData` or plain bytes, and `print_raw` and `print_lpd` return the number of bytes sent.
+
+```python
+from sercomm_printserver import PrintData
+
+sent = server.print_raw(1, PrintData.from_path("manual.pcl"))
+server.print_lpd("L2", PrintJob(data=PrintData.from_path("report.ps"), name="report"))
 ```
 
 `discover_print_servers()`, `PrintServer.read_config()`, `write_config()` and `reset()`, and

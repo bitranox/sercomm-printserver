@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from print_sources import pipe_with
 from pydantic import SecretStr
 
 from sercomm_printserver.adapters.memory.device import FakeDevice, FakeTftp
@@ -24,6 +25,7 @@ from sercomm_printserver.domain.errors import (
 )
 from sercomm_printserver.domain.port_health import PortHealth, PortVerdict
 from sercomm_printserver.domain.port_status import PortState
+from sercomm_printserver.domain.print_data import PrintData
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -433,6 +435,55 @@ def test_raw_printing_refuses_before_connecting(printer: int, data: bytes, messa
     with pytest.raises(ValueError, match=message):
         _server(device).print_raw(printer, data)
     assert device.raw_sends == []
+
+
+def test_print_raw_returns_the_number_of_bytes_sent() -> None:
+    assert _server(_device()).print_raw(1, b"\x1bE") == 2
+
+
+def test_print_lpd_returns_the_size_of_the_data_file() -> None:
+    assert _server(_device()).print_lpd("L1", PrintJob(data=b"%!PS\n")) == 5
+
+
+def test_a_raw_job_from_a_pipe_is_sent_whole_and_counted() -> None:
+    device = _device()
+
+    with pipe_with(b"\x1bE" * 50_000) as reader:
+        sent = _server(device).print_raw(1, PrintData.from_stream(reader))
+
+    assert device.raw_sends == [(9100, b"\x1bE" * 50_000)]
+    assert sent == 100_000
+
+
+def test_an_lpd_job_from_a_pipe_is_recorded_as_its_bytes() -> None:
+    device = _device()
+
+    with pipe_with(b"%!PS\n") as reader:
+        sent = _server(device).print_lpd("L1", PrintJob(data=PrintData.from_stream(reader), name="page"))
+
+    assert [(queue, job.name, job.data) for queue, job in device.lpd_jobs] == [("L1", "page", b"%!PS\n")]
+    assert sent == 5
+
+
+def test_an_empty_pipe_is_refused_before_the_device_is_contacted() -> None:
+    device = _device()
+
+    with pipe_with(b"") as reader, pytest.raises(ValueError, match="without data"):
+        _server(device).print_raw(1, PrintData.from_stream(reader))
+
+    assert device.retrieved == []
+    assert device.raw_sends == []
+
+
+def test_an_empty_pipe_is_refused_before_a_verified_print_reads_anything() -> None:
+    device = _device()
+    device.monitor_replies = [DeviceUnavailableError("a status read happened")]
+
+    with pipe_with(b"") as reader, pytest.raises(ValueError, match="without data"):
+        _server(device).print_raw_verified(1, PrintData.from_stream(reader))
+
+    assert device.retrieved == []
+    assert device.monitor_replies != []
 
 
 # ---------------------------------------------------------------- printing, verified

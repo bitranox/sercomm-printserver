@@ -77,6 +77,34 @@ class PortBusyError(TimeoutError):
     """
 
 
+class PrintSourceChangedError(OSError):
+    """The file being printed delivered more or fewer bytes than its size announced.
+
+    LPD announces the data file's size before the data, so a file that grows or shrinks while it
+    is sent cannot be delivered as announced. The send then stops, sends no more than the
+    announced bytes, and closes without the end-of-file byte, so an RFC 1179 server discards the
+    job. This device prints data as it arrives, so part of the job may already be on paper: do
+    not resend it blindly. The fault is on this host, not the device.
+
+    Example:
+        >>> isinstance(PrintSourceChangedError("job.prn shrank: 40 of 100 bytes sent"), OSError)
+        True
+    """
+
+
+class SpoolError(OSError):
+    """Print data of unknown size could not be copied to a temporary file; nothing was sent.
+
+    LPD needs the size before the data, so a pipe is spooled to a temporary file first. A full
+    or unwritable temporary directory fails here, before the print server is contacted; the
+    message names the directory, which ``TMPDIR`` chooses.
+
+    Example:
+        >>> isinstance(SpoolError("no space left in /tmp"), OSError)
+        True
+    """
+
+
 class AuthenticationRequiredError(PermissionError):
     """The print server refused the operation until the right login and password are given.
 
@@ -140,5 +168,7 @@ __all__ = [
     "JobNotDrainedError",
     "NeighborTableError",
     "PortBusyError",
+    "PrintSourceChangedError",
+    "SpoolError",
     "UnverifiedAddressError",
 ]

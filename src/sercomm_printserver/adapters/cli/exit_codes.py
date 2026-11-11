@@ -27,7 +27,11 @@ class ExitCode(IntEnum):
     * 2, 13: errno-derived codes (ENOENT, EACCES)
     * 3: ``check`` found a wedged port (after ``--reset``: one still wedged after the restart)
     * 22: EINVAL
+    * 65: EX_DATAERR (sysexits.h): the file being printed changed size while it was sent;
+      part of the job may be on paper
     * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer
+    * 74: EX_IOERR (sysexits.h): print data of unknown size could not be spooled to a
+      temporary file; nothing was sent
     * 75: EX_TEMPFAIL (sysexits.h): ``print raw --verify`` found the port busy and sent nothing
     * 76: EX_PROTOCOL (sysexits.h): the print server answered something unexpected
     * 77: EX_NOPERM (sysexits.h): refused by policy, such as a destructive action
@@ -49,7 +53,9 @@ class ExitCode(IntEnum):
     PORT_WEDGED = 3
     PERMISSION_DENIED = 13
     INVALID_ARGUMENT = 22
+    PRINT_SOURCE_CHANGED = 65
     DEVICE_UNAVAILABLE = 69
+    SPOOL_FAILED = 74
     PORT_BUSY = 75
     PROTOCOL_ERROR = 76
     REFUSED = 77

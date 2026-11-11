@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import contextlib
+import errno
+import tempfile
+from typing import IO, TYPE_CHECKING
 
 import pytest
 from fake_lpd_server import FakeLpdServer, closed_port
+from print_sources import pipe_with
 
 from sercomm_printserver.adapters.lpd import LpdClient
 from sercomm_printserver.domain.endpoint import DeviceEndpoint, PrintJob
-from sercomm_printserver.domain.errors import DeviceResponseError, DeviceUnavailableError
+from sercomm_printserver.domain.errors import (
+    DeviceResponseError,
+    DeviceUnavailableError,
+    PrintSourceChangedError,
+    SpoolError,
+)
+from sercomm_printserver.domain.print_data import PrintData
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from sercomm_printserver.application.ports import LpdPort
 
 #: Protocol timing for the silent-server cases, not a test sleep.
@@ -32,11 +45,12 @@ def _client() -> LpdClient:
     return LpdClient(job_number=lambda: 42)
 
 
-def _submit_bytes(queue: bytes, job: PrintJob, control: bytes) -> bytes:
-    """Every byte a data-first submission of ``job`` puts on the wire."""
+def _submit_bytes(queue: bytes, job: PrintJob | bytes, control: bytes) -> bytes:
+    """Every byte a data-first submission of ``job`` (or of a job carrying these bytes) puts on the wire."""
+    data = job if isinstance(job, bytes) else b"".join(job.data.pieces())
     return (
         b"\x02" + queue + b"\n"
-        + b"\x03" + str(len(job.data)).encode() + b" dfA042ws1\n" + job.data + b"\x00"
+        + b"\x03" + str(len(data)).encode() + b" dfA042ws1\n" + data + b"\x00"
         + b"\x02" + str(len(control)).encode() + b" cfA042ws1\n" + control + b"\x00"
     )  # fmt: skip
 
@@ -191,7 +205,7 @@ def test_a_device_that_withholds_the_data_files_acknowledgement_says_so_after_th
     ):
         _client().submit(_endpoint(server.port, timeout=_SHORT_TIMEOUT), "L1", _JOB)
 
-    assert bytes(server.received).endswith(_JOB.data + b"\x00")
+    assert bytes(server.received).endswith(b"".join(_JOB.data.pieces()) + b"\x00")
 
 
 def test_a_device_that_stops_taking_the_data_times_out_while_it_is_sent() -> None:
@@ -236,3 +250,140 @@ def test_an_empty_job_is_refused_before_connecting() -> None:
 def test_a_job_number_outside_0_to_999_is_refused(number: int) -> None:
     with pytest.raises(ValueError, match="outside 0-999"):
         LpdClient(job_number=lambda: number).submit(_endpoint(closed_port()), "L1", _JOB)
+
+
+# Streaming sources ------------------------------------------------------------
+
+#: More than one 64 KiB piece, and not a multiple of it.
+_BIG = bytes(range(256)) * 700
+
+
+def _job_of(data: PrintData) -> PrintJob:
+    return PrintJob(data=data, name="report", user="alice", client_host="ws1")
+
+
+def _file(tmp_path: Path, content: bytes) -> Path:
+    path = tmp_path / "job.prn"
+    path.write_bytes(content)
+    return path
+
+
+def _submit(job: PrintJob, **client: Callable[[], IO[bytes]]) -> tuple[int, bytes]:
+    with FakeLpdServer() as server:
+        sent = LpdClient(job_number=lambda: 42, **client).submit(_endpoint(server.port), "L1", job)
+        assert server.finished.wait(_WAIT)
+    return sent, bytes(server.received)
+
+
+def test_submit_returns_the_size_of_the_data_file_it_sent() -> None:
+    sent, _ = _submit(_JOB)
+
+    assert sent == len(b"%!PS\nshowpage\n")
+
+
+def test_a_job_from_a_path_is_sent_as_its_file_holds_it(tmp_path: Path) -> None:
+    sent, received = _submit(_job_of(PrintData.from_path(_file(tmp_path, _BIG))))
+
+    assert sent == len(_BIG)
+    assert received == _submit_bytes(b"L1", _BIG, _CONTROL)
+
+
+def test_a_job_from_an_open_regular_file_is_sent_without_spooling(tmp_path: Path) -> None:
+    def no_spool() -> IO[bytes]:
+        raise AssertionError("a regular file knows its size and must not be spooled")
+
+    with _file(tmp_path, _BIG).open("rb") as stream:
+        sent, received = _submit(_job_of(PrintData.from_stream(stream)), spool=no_spool)
+
+    assert sent == len(_BIG)
+    assert received == _submit_bytes(b"L1", _BIG, _CONTROL)
+
+
+def test_a_job_from_a_pipe_is_spooled_first_then_sent_with_its_size() -> None:
+    spools: list[IO[bytes]] = []
+
+    with contextlib.ExitStack() as files, pipe_with(_BIG) as reader:
+
+        def spool() -> IO[bytes]:
+            spools.append(files.enter_context(tempfile.TemporaryFile()))
+            return spools[-1]
+
+        sent, received = _submit(_job_of(PrintData.from_stream(reader)), spool=spool)
+        assert len(spools) == 1
+        assert spools[0].closed
+
+    assert sent == len(_BIG)
+    assert received == _submit_bytes(b"L1", _BIG, _CONTROL)
+
+
+def test_an_empty_pipe_is_refused_before_connecting() -> None:
+    with (
+        FakeLpdServer() as server,
+        pipe_with(b"") as reader,
+        pytest.raises(ValueError, match="at least one byte") as error,
+    ):
+        _client().submit(_endpoint(server.port), "L1", _job_of(PrintData.from_stream(reader)))
+
+    assert type(error.value) is ValueError
+    assert not server.accepted
+
+
+def test_an_empty_file_is_refused_before_connecting(tmp_path: Path) -> None:
+    with FakeLpdServer() as server, pytest.raises(ValueError, match="at least one byte"):
+        _client().submit(_endpoint(server.port), "L1", _job_of(PrintData.from_path(_file(tmp_path, b""))))
+
+    assert not server.accepted
+
+
+def test_a_spool_that_cannot_be_created_fails_before_connecting_and_names_tmpdir() -> None:
+    def full_disk() -> IO[bytes]:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    with FakeLpdServer() as server, pipe_with(_BIG) as reader:
+        client = LpdClient(job_number=lambda: 42, spool=full_disk)
+        with pytest.raises(SpoolError, match=r"No space left on device.*nothing was sent.*TMPDIR"):
+            client.submit(_endpoint(server.port), "L1", _job_of(PrintData.from_stream(reader)))
+
+    assert not server.accepted
+
+
+def test_a_spool_that_cannot_be_written_fails_before_connecting(tmp_path: Path) -> None:
+    read_only = _file(tmp_path, b"")
+
+    def unwritable() -> IO[bytes]:
+        return read_only.open("rb")
+
+    with FakeLpdServer() as server, pipe_with(_BIG) as reader:
+        client = LpdClient(job_number=lambda: 42, spool=unwritable)
+        with pytest.raises(SpoolError, match=r"nothing was sent"):
+            client.submit(_endpoint(server.port), "L1", _job_of(PrintData.from_stream(reader)))
+
+    assert not server.accepted
+
+
+def test_a_file_that_shrank_after_its_size_was_read_stops_without_the_end_of_file_byte(tmp_path: Path) -> None:
+    path = _file(tmp_path, _BIG)
+    job = _job_of(PrintData.from_path(path))
+    path.write_bytes(_BIG[:1000])
+
+    with FakeLpdServer() as server:
+        with pytest.raises(PrintSourceChangedError, match=rf"shrank.*1000 of the {len(_BIG)} announced bytes"):
+            _client().submit(_endpoint(server.port), "L1", job)
+        assert server.finished.wait(_WAIT)
+
+    header = b"\x02L1\n\x03" + str(len(_BIG)).encode() + b" dfA042ws1\n"
+    assert bytes(server.received) == header + _BIG[:1000]
+
+
+def test_a_file_that_grew_after_its_size_was_read_sends_only_the_announced_bytes(tmp_path: Path) -> None:
+    path = _file(tmp_path, _BIG)
+    job = _job_of(PrintData.from_path(path))
+    path.write_bytes(_BIG + b"more than announced")
+
+    with FakeLpdServer() as server:
+        with pytest.raises(PrintSourceChangedError, match=rf"grew.*all {len(_BIG)} announced bytes"):
+            _client().submit(_endpoint(server.port), "L1", job)
+        assert server.finished.wait(_WAIT)
+
+    header = b"\x02L1\n\x03" + str(len(_BIG)).encode() + b" dfA042ws1\n"
+    assert bytes(server.received) == header + _BIG

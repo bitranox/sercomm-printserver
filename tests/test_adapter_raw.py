@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import io
 import re
 import socket
 import threading
@@ -11,13 +13,17 @@ from typing import TYPE_CHECKING
 import pytest
 from fake_lpd_server import closed_port
 from fake_raw_server import FakeRawServer, RawBehaviour
+from print_sources import pipe_with
 
 from sercomm_printserver.adapters.raw import RawPrinter
 from sercomm_printserver.domain.endpoint import DeviceEndpoint
 from sercomm_printserver.domain.errors import DeviceUnavailableError
 from sercomm_printserver.domain.link import DRAIN_MARGIN_SECONDS, LinkDrain
+from sercomm_printserver.domain.print_data import PrintData
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from sercomm_printserver.application.ports import RawPort
 
 pytestmark = pytest.mark.os_agnostic
@@ -287,3 +293,91 @@ def test_a_probe_of_an_unreachable_host_is_unavailable() -> None:
 def test_a_probe_outside_the_tcp_range_is_refused(port: int) -> None:
     with pytest.raises(ValueError, match=re.escape("port must be 1..65535")):
         RawPrinter().accepts_connection(_endpoint(), port)
+
+
+# ---------------------------------------------------------------------- streaming sources
+
+
+def _file(tmp_path: Path, content: bytes) -> Path:
+    path = tmp_path / "job.prn"
+    path.write_bytes(content)
+    return path
+
+
+class _FailingRead(io.BytesIO):
+    """A stream whose second read fails, as a file on a failing disk does."""
+
+    def __init__(self) -> None:
+        super().__init__(b"")
+        self.reads = 0
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        self.reads += 1
+        if self.reads > 1:
+            raise OSError(errno.EIO, "Input/output error")
+        return b"first piece"
+
+
+def test_send_returns_the_number_of_bytes_sent() -> None:
+    with FakeRawServer() as server:
+        sent = RawPrinter().send(_endpoint(), server.port, _JOB)
+
+    assert sent == len(_JOB)
+
+
+def test_a_job_from_a_path_is_sent_as_its_file_holds_it(tmp_path: Path) -> None:
+    with FakeRawServer() as server:
+        sent = RawPrinter().send(_endpoint(), server.port, PrintData.from_path(_file(tmp_path, _JOB)))
+
+    assert sent == len(_JOB)
+    assert server.received == _JOB
+
+
+def test_a_job_from_an_open_regular_file_is_sent_whole(tmp_path: Path) -> None:
+    with FakeRawServer() as server, _file(tmp_path, _JOB).open("rb") as stream:
+        sent = RawPrinter().send(_endpoint(), server.port, PrintData.from_stream(stream))
+
+    assert sent == len(_JOB)
+    assert server.received == _JOB
+
+
+def test_a_job_from_a_pipe_is_sent_whole_and_its_size_is_returned() -> None:
+    with FakeRawServer() as server, pipe_with(_JOB) as reader:
+        sent = RawPrinter().send(_endpoint(), server.port, PrintData.from_stream(reader))
+
+    assert sent == len(_JOB)
+    assert server.received == _JOB
+
+
+def test_an_empty_pipe_is_refused_before_any_connection() -> None:
+    with (
+        FakeRawServer() as server,
+        pipe_with(b"") as reader,
+        pytest.raises(ValueError, match="refusing to send empty data"),
+    ):
+        RawPrinter().send(_endpoint(), server.port, PrintData.from_stream(reader))
+
+    assert server.connections == 0
+
+
+def test_an_empty_file_is_refused_before_any_connection(tmp_path: Path) -> None:
+    with FakeRawServer() as server, pytest.raises(ValueError, match="refusing to send empty data"):
+        RawPrinter().send(_endpoint(), server.port, PrintData.from_path(_file(tmp_path, b"")))
+
+    assert server.connections == 0
+
+
+def test_a_reset_mid_stream_of_a_pipe_says_the_total_is_unknown() -> None:
+    with (
+        FakeRawServer(behaviour=RawBehaviour.RESET_MID_STREAM, reset_after=1024) as server,
+        pipe_with(_JOB * 32) as reader,
+        pytest.raises(DeviceUnavailableError, match=r"after \d+ bytes of a job of unknown size were sent"),
+    ):
+        RawPrinter().send(_endpoint(), server.port, PrintData.from_stream(reader))
+
+
+def test_a_source_that_fails_to_read_is_not_reported_as_the_device_breaking_off() -> None:
+    with FakeRawServer() as server, pytest.raises(OSError, match="Input/output error") as caught:
+        RawPrinter().send(_endpoint(), server.port, PrintData.from_stream(_FailingRead()))
+
+    assert not isinstance(caught.value, DeviceUnavailableError)

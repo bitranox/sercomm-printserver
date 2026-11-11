@@ -8,6 +8,15 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ### Added
 
+- `PrintData` (exported from the package root): a print job's bytes, read from their source in
+  pieces of at most 64 KiB, built with `PrintData.of(bytes)`, `PrintData.from_path(path)` or
+  `PrintData.from_stream(stream)`. `print lpd` and `print raw` now stream the file or stdin
+  instead of reading it whole, so a job's size no longer adds to peak memory (measured: about
+  1x the job before, under 1 MiB at 64 and 128 MiB after).
+- `print lpd` from a pipe spools the data to a temporary file first, because LPD sends the size
+  ahead of the data. A spool that cannot be written raises `SpoolError` (exit 74) before the
+  device is contacted; a file that changes size while it is sent raises
+  `PrintSourceChangedError` (exit 65) and leaves the job without its end-of-file byte.
 - `check` (library: `PrintServer.check`) tells a wedged port from a busy one. A port reading
   `Printing`, occupied by `Direct Socket`, 0 bytes serviced, gets a bare connect with no data on
   every RAW port routed to it: when all of them accept, the port is `wedged` (every later job to it
@@ -24,6 +33,13 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ### Changed
 
+- `PrintJob.data` is a `PrintData`; plain bytes are still accepted and wrapped, and in-memory data
+  compares equal to its bytes, so `PrintJob(data=b"...")` and `job.data == b"..."` keep working.
+  `len(job.data)` and the truth value of `job.data` no longer work: use `job.data.size`.
+- `RawPort.send` takes `PrintData` or bytes and returns the number of bytes sent; `LpdPort.submit`
+  returns the size of the data file sent. `PrintServer.print_raw` and `print_lpd` return the same
+  counts, and `print_raw`/`print_raw_verified` take `PrintData` or bytes. A RAW connection that
+  breaks while a pipe is sent says the job's size is unknown instead of giving a total.
 - `print raw` reads the device configuration first (one FTP session, about 1.2 s) and, for a
   logical printer routed to the serial port `SP`, keeps the connection open until the job has
   crossed the serial line at the port's baud rate (plus 0.25 s) before it closes. A RAW connection

@@ -135,6 +135,10 @@ class FakeLpdServer:
         try:
             with conn:
                 self._session(conn, _Recorder(conn, self.received))
+        except (BrokenPipeError, ConnectionResetError):
+            # A client that aborts a job closes mid-exchange on purpose (a print file that changed
+            # size while it was sent); an acknowledgement the server then writes can draw a reset.
+            pass
         finally:
             self.finished.set()
 

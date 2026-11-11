@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Final
 
 from ...domain.device_files import DeviceAction, ReadableFile, WritableFile
 from ...domain.errors import AuthenticationRequiredError, DeviceUnavailableError
+from ...domain.print_data import PrintData
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -181,18 +182,28 @@ class FakeDevice:
         jobs = sum(1 for name, _ in self.lpd_jobs if name == queue)
         return f"{queue}: {jobs} job(s){' (long)' if long_format else ''}\n"
 
-    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> None:
-        """Record the job."""
+    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> int:
+        """Record the job with its data read into memory; return the data's size.
+
+        Reading it here keeps a test's assertion on plain bytes, and empties a stream as a real
+        send would.
+        """
         self._check_reachable(endpoint)
-        self.lpd_jobs.append((queue, job))
+        content = b"".join(job.data.pieces())
+        self.lpd_jobs.append((queue, job.model_copy(update={"data": PrintData.of(content)})))
+        return len(content)
 
     # RawPort ---------------------------------------------------------------
 
-    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes, *, drain: LinkDrain | None = None) -> None:
-        """Record the bytes sent to ``port`` and the link the send waited for."""
+    def send(
+        self, endpoint: DeviceEndpoint, port: int, data: PrintData | bytes, *, drain: LinkDrain | None = None
+    ) -> int:
+        """Record the bytes sent to ``port`` and the link the send waited for; return their count."""
         self._check_reachable(endpoint)
-        self.raw_sends.append((port, data))
+        content = data if isinstance(data, bytes) else b"".join(data.pieces())
+        self.raw_sends.append((port, content))
         self.raw_drains.append(drain)
+        return len(content)
 
     def accepts_connection(self, endpoint: DeviceEndpoint, port: int) -> bool:
         """Record the probe; every port accepts unless it is in ``raw_refusing``."""

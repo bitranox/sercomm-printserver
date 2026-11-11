@@ -8,9 +8,10 @@ what was printed.
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -24,7 +25,7 @@ from sercomm_printserver.domain.device_files import DeviceAction
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from click.testing import CliRunner
+    from click.testing import CliRunner, Result
 
     from sercomm_printserver.composition import AppServices
     from sercomm_printserver.domain.endpoint import DeviceEndpoint
@@ -334,6 +335,87 @@ def test_print_raw_reads_stdin_and_picks_the_printers_port(
 
     assert result.exit_code == 0
     assert device.raw_sends == [(9102, b"\x1bE")]
+
+
+class _PieceOnlyStdin(io.BytesIO):
+    """Standard input that refuses a read of everything at once, as one too big for memory would."""
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        if size is None or size < 0:
+            raise AssertionError("the whole input was read at once instead of in pieces")
+        return super().read(size)
+
+
+#: Several 64 KiB pieces, so a streamed send is told apart from one read.
+_STDIN_JOB = bytes(range(256)) * 1000
+
+
+def _size(result: Result) -> object:
+    data = _json(result.stdout)["data"]
+    assert isinstance(data, dict)
+    return cast("dict[str, object]", data)["size"]
+
+
+def test_print_raw_streams_stdin_and_reports_the_bytes_sent(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "1", "-", *_HOST, "--json-bare"], obj=services, input=_PieceOnlyStdin(_STDIN_JOB)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert device.raw_sends == [(9100, _STDIN_JOB)]
+    assert _size(result) == len(_STDIN_JOB)
+
+
+def test_print_raw_verify_streams_stdin_and_reports_the_bytes_sent(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.monitor_text = _IDLE_PORTS
+    result = cli_runner.invoke(
+        cli_root.cli,
+        ["print", "raw", "3", "-", *_HOST, "--verify", "--json-bare"],
+        obj=services,
+        input=_PieceOnlyStdin(_STDIN_JOB),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert device.raw_sends == [(9102, _STDIN_JOB)]
+    assert _size(result) == len(_STDIN_JOB)
+
+
+def test_print_lpd_streams_stdin_and_reports_the_bytes_sent(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    arguments = ["print", "lpd", "L1", "-", *_HOST, "--json-bare"]
+    result = cli_runner.invoke(cli_root.cli, arguments, obj=services, input=_PieceOnlyStdin(_STDIN_JOB))
+
+    assert result.exit_code == 0, result.output
+    assert [(queue, job.data) for queue, job in device.lpd_jobs] == [("L1", _STDIN_JOB)]
+    assert _size(result) == len(_STDIN_JOB)
+
+
+@pytest.mark.parametrize("transport", [["raw", "1"], ["lpd", "L1"]])
+def test_print_reports_the_size_of_a_file_argument(
+    cli_runner: CliRunner, services: Callable[[], AppServices], tmp_path: Path, transport: list[str]
+) -> None:
+    source = tmp_path / "page.prn"
+    source.write_bytes(_STDIN_JOB)
+
+    result = cli_runner.invoke(cli_root.cli, ["print", *transport, str(source), *_HOST, "--json-bare"], obj=services)
+
+    assert result.exit_code == 0, result.output
+    assert _size(result) == len(_STDIN_JOB)
+
+
+def test_print_raw_refuses_empty_stdin_before_contacting_the_device(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    result = cli_runner.invoke(cli_root.cli, ["print", "raw", "1", "-", *_HOST], obj=services, input=b"")
+
+    assert result.exit_code == 22
+    assert device.retrieved == []
+    assert device.raw_sends == []
 
 
 def test_print_lpd_reports_the_transport_and_queue_as_fields(

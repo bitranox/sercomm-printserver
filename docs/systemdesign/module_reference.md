@@ -66,6 +66,7 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 | `device_files.py`     | `ReadableFile`, `WritableFile`, `DeviceAction` (RESET, DEFAULTC, PASSRESET, SETIP)    |
 | `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                         |
 | `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`              |
+| `print_data.py`       | `PrintData`, `Piece`, `PIECE_SIZE`: a job's bytes from memory, a path or a stream     |
 | `port_status.py`      | `PortStatus`, `Occupant`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`   |
 | `port_health.py`      | `PortVerdict`, `PortHealth`, `is_wedge_candidate`, `probed_verdict`: a wedged port    |
 | `link.py`             | `LinkDrain`, `link_drain_for`: how long a job takes to cross the serial link          |
@@ -169,23 +170,25 @@ takes `--network`, the `arp` commands `--mac`, `--ip` and `--interface` (`assign
 `ExitCode` in `adapters/cli/exit_codes.py`; device commands map errors through `exit_code_for`
 in `adapters/cli/commands/_device.py` (first match wins, anything else exits 1).
 
-| Code | Name                 | Raised for                                                                                                                                               |
-|------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0    | `SUCCESS`            | Command completed                                                                                                                                        |
-| 1    | `GENERAL_ERROR`      | `NeighborTableError`, or any unmapped failure                                                                                                            |
-| 2    | `FILE_NOT_FOUND`     | click's usage error (bad option or missing argument); no command raises it                                                                               |
-| 3    | `PORT_WEDGED`        | `check` found a wedged port (with `--reset`: still wedged after the restart); not an exception                                                           |
-| 13   | `PERMISSION_DENIED`  | `HostPrivilegeError` (no right to change the ARP table), `UnverifiedAddressError` (no ARP request possible, cache knows nothing); config-deploy refusals |
-| 22   | `INVALID_ARGUMENT`   | `ValueError`, including `ConfigFormatError`; config section not found                                                                                    |
-| 69   | `DEVICE_UNAVAILABLE` | `DeviceUnavailableError`: refused, timed out, no route                                                                                                   |
-| 75   | `PORT_BUSY`          | `PortBusyError`: `print raw --verify` found the port busy until the deadline and sent nothing                                                            |
-| 76   | `PROTOCOL_ERROR`     | `DeviceResponseError`: the device answered in an unexpected form                                                                                         |
-| 77   | `REFUSED`            | `ConfirmationRequiredError`, `AuthenticationRequiredError`                                                                                               |
-| 78   | `CONFIG_ERROR`       | `ConfigurationError`: configuration missing, not loadable or invalid                                                                                     |
-| 110  | `TIMEOUT`            | `JobNotDrainedError`: `print raw --verify` sent the data and the port was not read as idle                                                               |
-| 130  | `SIGNAL_INT`         | SIGINT (translated by lib_cli_exit_tools)                                                                                                                |
-| 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                                                                       |
-| 143  | `SIGNAL_TERM`        | SIGTERM                                                                                                                                                  |
+| Code | Name                   | Raised for                                                                                                                                               |
+|------|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0    | `SUCCESS`              | Command completed                                                                                                                                        |
+| 1    | `GENERAL_ERROR`        | `NeighborTableError`, or any unmapped failure                                                                                                            |
+| 2    | `FILE_NOT_FOUND`       | click's usage error (bad option or missing argument); no command raises it                                                                               |
+| 3    | `PORT_WEDGED`          | `check` found a wedged port (with `--reset`: still wedged after the restart); not an exception                                                           |
+| 13   | `PERMISSION_DENIED`    | `HostPrivilegeError` (no right to change the ARP table), `UnverifiedAddressError` (no ARP request possible, cache knows nothing); config-deploy refusals |
+| 22   | `INVALID_ARGUMENT`     | `ValueError`, including `ConfigFormatError`; config section not found                                                                                    |
+| 65   | `PRINT_SOURCE_CHANGED` | `PrintSourceChangedError`: a file changed size while `print lpd` sent it; the job was left unterminated                                                  |
+| 69   | `DEVICE_UNAVAILABLE`   | `DeviceUnavailableError`: refused, timed out, no route                                                                                                   |
+| 74   | `SPOOL_FAILED`         | `SpoolError`: `print lpd` could not spool a pipe to a temporary file; nothing was sent                                                                   |
+| 75   | `PORT_BUSY`            | `PortBusyError`: `print raw --verify` found the port busy until the deadline and sent nothing                                                            |
+| 76   | `PROTOCOL_ERROR`       | `DeviceResponseError`: the device answered in an unexpected form                                                                                         |
+| 77   | `REFUSED`              | `ConfirmationRequiredError`, `AuthenticationRequiredError`                                                                                               |
+| 78   | `CONFIG_ERROR`         | `ConfigurationError`: configuration missing, not loadable or invalid                                                                                     |
+| 110  | `TIMEOUT`              | `JobNotDrainedError`: `print raw --verify` sent the data and the port was not read as idle                                                               |
+| 130  | `SIGNAL_INT`           | SIGINT (translated by lib_cli_exit_tools)                                                                                                                |
+| 141  | `BROKEN_PIPE`          | Output pipe closed                                                                                                                                       |
+| 143  | `SIGNAL_TERM`          | SIGTERM                                                                                                                                                  |
 
 ## Implementation Details
 

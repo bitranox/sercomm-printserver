@@ -10,27 +10,35 @@ Why it is shaped this way:
   connects from an ephemeral port; a strict server could refuse that (unverified on the PS301).
 * The PS301's queue-state reply has not been measured, so it is returned as text, unparsed.
 * One TCP connection per call: the device serves few connections at once and keeps no session.
+* The data file's header carries its size, so data of unknown size (a pipe) is first copied to
+  a temporary file in pieces; data of known size is sent as it is read. Either way one piece of
+  at most 64 KiB is in memory at a time. A file whose size changes while it is sent is stopped
+  before its end-of-file byte, so the server discards the job rather than taking a wrong one.
 """
 
 from __future__ import annotations
 
+import contextlib
 import re
 import secrets
 import socket
-from typing import TYPE_CHECKING, Final
+import tempfile
+from typing import IO, TYPE_CHECKING, Final
 
-from ...domain.errors import DeviceResponseError, DeviceUnavailableError
+from ...domain.errors import DeviceResponseError, DeviceUnavailableError, PrintSourceChangedError, SpoolError
+from ...domain.print_data import PrintData
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import TracebackType
 
     from ...domain.endpoint import DeviceEndpoint, PrintJob
+    from ...domain.print_data import Piece
 
 #: A queue name as RFC 1179 puts it on the wire: printable ASCII without spaces, short enough for
 #: any LPD implementation's queue table.
 _QUEUE_NAME: Final = re.compile(r"[\x21-\x7e]{1,31}")
-#: Print data is written in slices of this size so a large job is never copied as a whole.
+#: Bytes read per call while a queue-state reply is collected.
 _CHUNK: Final = 64 * 1024
 #: Upper bound for a queue-state reply; a device that keeps talking past it is not answering LPD.
 _STATE_CAP: Final = 64 * 1024
@@ -111,8 +119,8 @@ class _LpdConnection:
     ) -> None:
         self._sock.close()
 
-    def send(self, data: bytes | memoryview, *, step: str) -> None:
-        """Send ``data`` completely; callers pass pieces of at most ``_CHUNK`` bytes.
+    def send(self, data: Piece, *, step: str) -> None:
+        """Send ``data`` completely; callers pass pieces of at most 64 KiB.
 
         The piece size is what makes the timeout bound a device that stopped reading: Windows
         accepts one send call of any size whole while its send buffer is not full, so a whole
@@ -179,15 +187,101 @@ class _LpdConnection:
         return DeviceUnavailableError(f"{self._address} did not answer the {step}: {detail}")
 
 
-def _send_file(conn: _LpdConnection, *, subcommand: bytes, name: str, content: bytes, label: str) -> None:
-    """Send one file of a job: header line, ack, content, the 0x00 terminator, ack."""
-    conn.send(subcommand + f"{len(content)} {name}\n".encode("ascii"), step=f"{label} header")
+def _send_file(conn: _LpdConnection, *, subcommand: bytes, name: str, content: PrintData, label: str) -> int:
+    """Send one file of a job: header line, ack, content, the 0x00 terminator, ack; return its size.
+
+    The header announces ``content.size``. When the pieces deliver more or fewer bytes, at most
+    the announced ones are sent and the 0x00 is left out: an RFC 1179 server drops a data file
+    that does not end with it.
+
+    Raises:
+        PrintSourceChangedError: The content delivered a different number of bytes.
+    """
+    announced = content.size
+    if announced is None:
+        raise ValueError(f"the {label} needs a known size; spool data of unknown size first")
+    conn.send(subcommand + f"{announced} {name}\n".encode("ascii"), step=f"{label} header")
     conn.expect_ack(f"{label} header")
-    view = memoryview(content)
-    for start in range(0, len(view), _CHUNK):
-        conn.send(view[start : start + _CHUNK], step=label)
+    sent = _send_content(conn, content, announced=announced, label=label)
     conn.send(b"\x00", step=label)
     conn.expect_ack(label)
+    return sent
+
+
+def _send_content(conn: _LpdConnection, content: PrintData, *, announced: int, label: str) -> int:
+    """Send at most ``announced`` bytes of ``content``; refuse when it delivers another count."""
+    sent = 0
+    pieces = content.pieces()
+    try:
+        for piece in pieces:
+            room = announced - sent
+            if len(piece) > room:
+                if room:
+                    conn.send(piece[:room], step=label)
+                raise PrintSourceChangedError(
+                    f"the {label} grew while it was sent: all {announced} announced bytes were sent and more "
+                    f"followed; {_UNTERMINATED}"
+                )
+            conn.send(piece, step=label)
+            sent += len(piece)
+    finally:
+        pieces.close()
+    if sent < announced:
+        raise PrintSourceChangedError(
+            f"the {label} shrank while it was sent: it ended after {sent} of the {announced} announced bytes; "
+            f"{_UNTERMINATED}"
+        )
+    return sent
+
+
+#: What a size mismatch leaves behind, for both directions of the change.
+_UNTERMINATED: Final = (
+    "the file was left without its end-of-file byte, so an LPD server discards it, but this device "
+    "prints data as it arrives, so part of the job may be on paper; do not resend it blindly"
+)
+
+
+def _spooled(data: PrintData, spool: Callable[[], IO[bytes]], stack: contextlib.ExitStack) -> PrintData:
+    """Copy data of unknown size to a temporary file in pieces; return it as data of known size.
+
+    The file is closed when ``stack`` closes. Only creating or writing the spool is a spool
+    failure: an error reading the data itself propagates unchanged.
+
+    Raises:
+        SpoolError: The temporary file could not be created or written; nothing was sent.
+    """
+    try:
+        target = stack.enter_context(spool())
+    except OSError as exc:
+        raise _spool_error(exc) from exc
+    written = 0
+    pieces = data.pieces()
+    try:
+        for piece in pieces:
+            written += _spool_write(target, piece)
+    finally:
+        pieces.close()
+    try:
+        target.flush()
+        target.seek(0)
+    except OSError as exc:
+        raise _spool_error(exc) from exc
+    return PrintData.from_stream(target, size=written)
+
+
+def _spool_write(target: IO[bytes], piece: Piece) -> int:
+    try:
+        return target.write(piece)
+    except OSError as exc:
+        raise _spool_error(exc) from exc
+
+
+def _spool_error(exc: OSError) -> SpoolError:
+    return SpoolError(
+        f"could not copy the print data to a temporary file in {tempfile.gettempdir()} ({exc}); nothing "
+        "was sent. LPD needs the size before the data, so data of unknown size is spooled first: point "
+        "TMPDIR at a directory with room for the job, or print from a file instead of a pipe"
+    )
 
 
 class LpdClient:
@@ -196,6 +290,8 @@ class LpdClient:
     Args:
         job_number: Source of the three-digit job number in the file names (``dfA<nnn>host``);
             tests inject a fixed one. Defaults to a random number 0-999.
+        spool: Opens the temporary file data of unknown size is copied to before it is sent;
+            defaults to ``tempfile.TemporaryFile``, which ``TMPDIR`` places.
 
     Example:
         >>> client = LpdClient(job_number=lambda: 7)
@@ -203,8 +299,14 @@ class LpdClient:
         'queue_state'
     """
 
-    def __init__(self, *, job_number: Callable[[], int] = _random_job_number) -> None:
+    def __init__(
+        self,
+        *,
+        job_number: Callable[[], int] = _random_job_number,
+        spool: Callable[[], IO[bytes]] = tempfile.TemporaryFile,
+    ) -> None:
         self._job_number = job_number
+        self._spool = spool
 
     def queue_state(self, endpoint: DeviceEndpoint, queue: str, *, long_format: bool) -> str:
         """Return the queue-state text; command 0x03 (short) or 0x04 (long); sends no print data.
@@ -229,34 +331,47 @@ class LpdClient:
             reply = conn.read_to_end(step="queue-state command")
         return reply.decode("ascii", errors="replace")
 
-    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> None:
+    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> int:
         """Send one print job to ``queue``: receive-job command, data file, then control file.
+
+        Data of unknown size (a pipe) is copied to a temporary file first, before the device is
+        contacted, because the data file's header announces its size.
 
         Args:
             endpoint: The print server.
             queue: Logical printer, ``L1``..``L8`` or ``lp``.
             job: The data plus the names for the control file.
 
+        Returns:
+            The size of the data file sent.
+
         Raises:
             ValueError: Invalid queue name, empty job data, or a job number outside 0-999;
                 nothing was sent.
+            SpoolError: Data of unknown size could not be copied to a temporary file; nothing
+                was sent.
+            PrintSourceChangedError: The data delivered more or fewer bytes than its size
+                announced (a file changed while it was sent); the job was left unterminated.
             DeviceUnavailableError: The device could not be reached or did not answer.
             DeviceResponseError: A step was acknowledged with a non-zero byte (the message names
                 the step) or the device broke off the exchange.
         """
         queue_name = _queue_bytes(queue)
-        if not job.data:
-            raise ValueError("an LPD print job needs at least one byte of data")
-        tag = _job_tag(self._job_number())
-        data_name = f"dfA{tag}{job.client_host}"
-        control = _control_file(job, data_name)
-        with _LpdConnection(endpoint) as conn:
-            conn.send(b"\x02" + queue_name + b"\n", step="receive-job command")
-            conn.expect_ack("receive-job command")
-            _send_file(conn, subcommand=b"\x03", name=data_name, content=job.data, label="data file")
-            _send_file(
-                conn, subcommand=b"\x02", name=f"cfA{tag}{job.client_host}", content=control, label="control file"
-            )
+        with contextlib.ExitStack() as stack:
+            data = job.data if job.data.size is not None else _spooled(job.data, self._spool, stack)
+            if not data.size:
+                raise ValueError("an LPD print job needs at least one byte of data")
+            tag = _job_tag(self._job_number())
+            data_name = f"dfA{tag}{job.client_host}"
+            control = PrintData.of(_control_file(job, data_name))
+            with _LpdConnection(endpoint) as conn:
+                conn.send(b"\x02" + queue_name + b"\n", step="receive-job command")
+                conn.expect_ack("receive-job command")
+                sent = _send_file(conn, subcommand=b"\x03", name=data_name, content=data, label="data file")
+                _send_file(
+                    conn, subcommand=b"\x02", name=f"cfA{tag}{job.client_host}", content=control, label="control file"
+                )
+        return sent
 
 
 __all__ = ["LpdClient"]

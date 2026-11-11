@@ -43,10 +43,13 @@ from .domain.errors import (
     JobNotDrainedError,
     NeighborTableError,
     PortBusyError,
+    PrintSourceChangedError,
+    SpoolError,
     UnverifiedAddressError,
 )
 from .domain.neighbor import AddressHolder, LookupMethod
 from .domain.port_status import PortState, PortStatus, PortType, PrinterStatus
+from .domain.print_data import PrintData
 
 
 def discover_print_servers(*, networks: list[str] | None = None, timeout: float = 3.0) -> DiscoveryReport:
@@ -99,9 +102,12 @@ __all__ = [
     "PortState",
     "PortStatus",
     "PortType",
+    "PrintData",
     "PrintJob",
     "PrintServer",
+    "PrintSourceChangedError",
     "PrinterStatus",
+    "SpoolError",
     "UnverifiedAddressError",
     "arp_trick",
     "discover_print_servers",

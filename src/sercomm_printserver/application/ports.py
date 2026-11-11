@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ..domain.enums import DeployTarget, OutputFormat
     from ..domain.link import LinkDrain
     from ..domain.neighbor import AddressHolder
+    from ..domain.print_data import PrintData
     from .discovery import LocalScope, ProbeHit
     from .print_server import PrintServer
 
@@ -147,16 +148,26 @@ class LpdPort(Protocol):
         """Return the queue state text (command 0x03 short, 0x04 long). Prints nothing."""
         ...
 
-    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> None:
-        """Send one print job to ``queue``."""
+    def submit(self, endpoint: DeviceEndpoint, queue: str, job: PrintJob) -> int:
+        """Send one print job to ``queue``; return the size of the data file sent.
+
+        Data of unknown size is spooled to a temporary file first (``SpoolError`` when that
+        fails, before anything is sent); a file that changes size while it is sent raises
+        ``PrintSourceChangedError``.
+        """
         ...
 
 
 class RawPort(Protocol):
     """RAW / direct-socket printing: the bytes go straight to the port, no protocol."""
 
-    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes, *, drain: LinkDrain | None = None) -> None:
-        """Connect to ``port``, send ``data``, keep the connection open for ``drain``, close."""
+    def send(
+        self, endpoint: DeviceEndpoint, port: int, data: PrintData | bytes, *, drain: LinkDrain | None = None
+    ) -> int:
+        """Connect to ``port``, send ``data`` piece by piece, keep it open for ``drain``, close.
+
+        Returns the number of bytes sent, which is the only size a pipe has.
+        """
         ...
 
     def accepts_connection(self, endpoint: DeviceEndpoint, port: int) -> bool:

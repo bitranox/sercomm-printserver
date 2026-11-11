@@ -4,7 +4,8 @@ Device behaviour this adapter is shaped by (measured on a PS301, firmware 6022):
 
 * Data sent while no printer takes it stays queued: the port reads ``Printing / Direct
   Socket`` until a restart and blocks every other job. ``send`` therefore refuses empty data
-  before it connects. A bare connect closed at once leaves the port idle (measured 2026-11-10:
+  before it connects; for a stream of unknown size (a pipe) it reads the first piece to know,
+  and sends that piece first. A bare connect closed at once leaves the port idle (measured 2026-11-10:
   clean closes, 20-connect bursts and resets all left it idle), which ``accepts_connection``
   relies on.
 * The device takes a whole job at once and passes it on at the speed of the printer's link. A
@@ -29,19 +30,21 @@ timeout while waiting for its close returns normally.
 
 from __future__ import annotations
 
+import itertools
 import socket
 import time
 from typing import TYPE_CHECKING, Final
 
 from ...domain.errors import DeviceUnavailableError
+from ...domain.print_data import PrintData
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from ...domain.endpoint import DeviceEndpoint
     from ...domain.link import LinkDrain
+    from ...domain.print_data import Piece
 
-_SEND_CHUNK: Final = 64 * 1024
 _RECV_SIZE: Final = 4096
 #: Bytes the device may send back (status, PJL echo) before the adapter stops waiting for its
 #: close; the data is discarded, the cap only bounds a peer that never stops sending.
@@ -55,11 +58,7 @@ _REFUSED_RETRY_SECONDS: Final = 3.0
 _REFUSED_RETRY_INTERVAL: Final = 0.25
 
 
-def _check_arguments(port: int, data: bytes) -> None:
-    """Refuse what must never reach the device, before any connection is opened."""
-    if not data:
-        raise ValueError("refusing to send empty data: an empty job can leave the RAW port blocked for minutes")
-    _check_port(port)
+_EMPTY_DATA: Final = "refusing to send empty data: an empty job can leave the RAW port blocked for minutes"
 
 
 def _check_port(port: int) -> None:
@@ -154,23 +153,31 @@ class _DrainClock:
         return max(0.0, self._carried_at + self._drain.margin - self._clock())
 
 
-def _transmit(sock: socket.socket, data: bytes, *, address: str, carried: _DrainClock) -> None:
-    """Send every byte, counting them so a broken connection says how far the job got.
+def _transmit(
+    sock: socket.socket, pieces: Iterable[Piece], *, address: str, total: int | None, carried: _DrainClock
+) -> int:
+    """Send every piece, counting the bytes so a broken connection says how far the job got.
 
     ``sendall`` would hide that count, which is what tells the caller whether a partial job
-    may already be on paper.
+    may already be on paper. Only the socket's errors are the device's: a piece that fails to
+    be READ (a failing disk) propagates as the error it is.
     """
-    view = memoryview(data)
     sent = 0
-    try:
-        while sent < len(view):
-            taken = sock.send(view[sent : sent + _SEND_CHUNK])
+    for piece in pieces:
+        view = memoryview(piece)
+        offset = 0
+        while offset < len(view):
+            try:
+                taken = sock.send(view[offset:])
+            except OSError as exc:
+                progress = f"{sent} of {total} bytes" if total is not None else f"{sent} bytes of a job of unknown size"
+                raise DeviceUnavailableError(
+                    f"{address} broke the connection after {progress} were sent: {exc}"
+                ) from exc
+            offset += taken
             sent += taken
             carried.note(taken)
-    except OSError as exc:
-        raise DeviceUnavailableError(
-            f"{address} broke the connection after {sent} of {len(view)} bytes were sent: {exc}"
-        ) from exc
+    return sent
 
 
 def _finish(sock: socket.socket, *, address: str, total: int) -> None:
@@ -206,7 +213,7 @@ class RawPrinter:
         >>> from sercomm_printserver.application.ports import RawPort
         >>> from sercomm_printserver.domain.endpoint import DeviceEndpoint
         >>> port: RawPort = RawPrinter()
-        >>> RawPrinter().send(DeviceEndpoint(host="192.0.2.52"), 9100, b"")
+        >>> RawPrinter().send(DeviceEndpoint(host="192.0.2.52"), 9100, PrintData.of(b""))
         Traceback (most recent call last):
         ...
         ValueError: refusing to send empty data: an empty job can leave the RAW port blocked for minutes
@@ -218,7 +225,9 @@ class RawPrinter:
         self._sleep = sleep
         self._clock = clock
 
-    def send(self, endpoint: DeviceEndpoint, port: int, data: bytes, *, drain: LinkDrain | None = None) -> None:
+    def send(
+        self, endpoint: DeviceEndpoint, port: int, data: PrintData | bytes, *, drain: LinkDrain | None = None
+    ) -> int:
         """Connect to ``port``, send ``data``, wait for the link, half-close, wait for the device to close.
 
         Args:
@@ -226,28 +235,51 @@ class RawPrinter:
                 connect attempt, each send and the wait for the device's close; a refused
                 connect is retried for up to 3 s, never longer than ``timeout``.
             port: The RAW TCP port (9100-9102 or 4010/4020/4030 for L1..L3).
-            data: The print data, sent unchanged.
+            data: The print data, sent unchanged piece by piece; plain bytes are wrapped.
             drain: The link the device passes the job on over. With it the connection stays
                 open until the bytes the socket took have had time to cross it, plus its
                 margin; without it the job ends as soon as the last byte is sent. A send that
                 fails raises at once and does not wait.
 
+        Returns:
+            The number of bytes sent: the job's size, also for a stream that could not tell it.
+
         Raises:
             ValueError: ``data`` is empty or ``port`` is outside 1..65535; nothing is sent.
             DeviceUnavailableError: The device could not be reached, or refused every connect
                 for the whole retry window (the message then points at a restart), or broke the
-                connection;
-                the message says how many bytes were sent.
+                connection; the message says how many bytes were sent.
+            OSError: Reading the data failed (a file or stream error, raised as it is).
         """
-        _check_arguments(port, data)
+        job = data if isinstance(data, PrintData) else PrintData.of(data)
+        pieces = job.pieces()
+        try:
+            first = next(pieces, None)
+            if first is None:
+                raise ValueError(_EMPTY_DATA)
+            _check_port(port)
+            return self._deliver(endpoint, port, itertools.chain((first,), pieces), total=job.size, drain=drain)
+        finally:
+            pieces.close()
+
+    def _deliver(
+        self,
+        endpoint: DeviceEndpoint,
+        port: int,
+        pieces: Iterable[Piece],
+        *,
+        total: int | None,
+        drain: LinkDrain | None,
+    ) -> int:
         address = f"{endpoint.host}:{port}"
         carried = _DrainClock(drain, self._clock)
         with _connect(endpoint.host, port, endpoint.timeout) as sock:
-            _transmit(sock, data, address=address, carried=carried)
+            sent = _transmit(sock, pieces, address=address, total=total, carried=carried)
             wait = carried.remaining()
             if wait > 0:
                 self._sleep(wait)
-            _finish(sock, address=address, total=len(data))
+            _finish(sock, address=address, total=sent)
+        return sent
 
     def accepts_connection(self, endpoint: DeviceEndpoint, port: int) -> bool:
         """Whether ``port`` accepts a connection; the connection is closed at once, with no data.

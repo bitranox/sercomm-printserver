@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from sercomm_printserver.adapters import cli as cli_mod
+from sercomm_printserver.adapters.cli.commands._device import exit_code_for
+from sercomm_printserver.domain.errors import PrintSourceChangedError, SpoolError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -81,3 +83,17 @@ def test_when_config_deploy_has_generic_error_it_exits_with_code_1(
 
     assert result.exit_code == 1
     assert "Disk full" in result.stderr
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        # Nothing was sent: the job can be sent again once the temporary directory has room.
+        (SpoolError("no space left in /tmp"), 74),
+        # Part of the job may be on paper: a script must not resend it as it would a failure before the send.
+        (PrintSourceChangedError("job.prn shrank"), 65),
+    ],
+)
+def test_a_local_print_data_failure_has_its_own_exit_code(error: Exception, code: int) -> None:
+    assert exit_code_for(error).value == code
