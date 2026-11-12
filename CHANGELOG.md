@@ -6,6 +6,18 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Fixed
+
+- A failure while shutting down logging no longer replaces the command's result: `main()` used to
+  end in a `RuntimeError` traceback ("Queue worker failed to stop within the allotted timeout") when a
+  log sink such as an unreachable Graylog stalled lib_log_rich's queue, losing the exit code of a
+  finished command. It now prints one warning on stderr and keeps the exit code.
+
+### Changed
+
+- The `lib_log_rich` floor is 8.2.0 (was 8.1.2): 8.2.0 backs off from an unreachable Graylog
+  instead of stalling the log queue.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
