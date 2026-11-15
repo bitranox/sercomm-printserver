@@ -6,6 +6,8 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-15
+
 ### Added
 
 - `QueueRefusedError` (exported from the package root), a subclass of `DeviceResponseError`:
