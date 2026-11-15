@@ -45,6 +45,7 @@ from .domain.errors import (
     NeighborTableError,
     PortBusyError,
     PrintSourceChangedError,
+    QueueRefusedError,
     SpoolError,
     UnverifiedAddressError,
 )
@@ -109,6 +110,7 @@ __all__ = [
     "PrintServer",
     "PrintSourceChangedError",
     "PrinterStatus",
+    "QueueRefusedError",
     "SpoolError",
     "UnverifiedAddressError",
     "arp_trick",

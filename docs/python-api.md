@@ -509,7 +509,8 @@ on paper. Resend only where this table says nothing was sent.
 | `DeviceUnavailableError`   | `print_lpd`                       | no: the device did not answer before any data                                                                                            |
 | `DeviceUnavailableError`   | `print_raw`, `print_raw_verified` | no: the device could not be reached, or the connection broke before it took any byte                                                     |
 | `DeliveryUnconfirmedError` | `print_raw`, `print_raw_verified` | yes, at least partly: the connection broke after the device took data; the message says how many bytes were sent                         |
-| `DeviceResponseError`      | `print_lpd`                       | maybe: the device refused a step or broke off the exchange                                                                               |
+| `QueueRefusedError`        | `print_lpd`                       | no: the device refused the receive-job command (the queue) before any data                                                               |
+| `DeviceResponseError`      | `print_lpd`                       | maybe: the device refused a later step or broke off the exchange                                                                         |
 | `DeviceResponseError`      | `print_raw`, `print_raw_verified` | no: the configuration routes the printer to `SP` but has no serial settings, or (verified print only) to a port the status does not list |
 | `PrintSourceChangedError`  | `print_lpd`                       | maybe: the file grew or shrank while it was sent; the job was left unterminated, but part of it may be on paper                          |
 | `JobNotDrainedError`       | `print_raw_verified`              | yes: the port stayed busy, or could not be read, after the send                                                                          |
@@ -597,22 +598,23 @@ Every failure is one of these, exported from `sercomm_printserver`, or a plain `
 argument the call refuses before it starts. Most derive from `OSError`, so catch the specific class
 first: an `except OSError` takes them all.
 
-| Exception                     | Base              | Raised when                                                                                                |
-|-------------------------------|-------------------|------------------------------------------------------------------------------------------------------------|
-| `DeviceUnavailableError`      | `ConnectionError` | the device could not be reached: refused, timed out, no route, or a connection broke before any print data |
-| `DeliveryUnconfirmedError`    | `ConnectionError` | `print_raw`: the connection broke after the device took print data; not a `DeviceUnavailableError`         |
-| `DeviceResponseError`         | `ValueError`      | the device answered, but not in the form this firmware family uses; or it stored a different configuration |
-| `AuthenticationRequiredError` | `PermissionError` | the device wants a login and password the endpoint does not have (FTP 530)                                 |
-| `ConfigFormatError`           | `ValueError`      | `CONFIG` text or a value is not one the family uses; names the parameter                                   |
-| `ConfirmationRequiredError`   | `PermissionError` | a destructive action without the device's name; nothing was done                                           |
-| `PortBusyError`               | `TimeoutError`    | `print_raw_verified`: the port stayed busy before the send; nothing was sent                               |
-| `JobNotDrainedError`          | `TimeoutError`    | `print_raw_verified`: the job was sent, but the port did not read idle in time                             |
-| `PrintSourceChangedError`     | `OSError`         | `print_lpd`: the file changed size while it was sent; part may be on paper                                 |
-| `SpoolError`                  | `OSError`         | `print_lpd`: data of unknown size could not be copied to a temporary file; nothing was sent                |
-| `HostPrivilegeError`          | `PermissionError` | ARP trick: this host may not change its neighbour table                                                    |
-| `UnverifiedAddressError`      | `PermissionError` | ARP trick: nothing shows the address to borrow is free                                                     |
-| `NeighborTableError`          | `OSError`         | ARP trick: the neighbour table could not be read or written for another reason                             |
-| `ConfigurationError`          | `Exception`       | the command line tool's own settings are missing or invalid; no `PrintServer` method raises it             |
+| Exception                     | Base                  | Raised when                                                                                                |
+|-------------------------------|-----------------------|------------------------------------------------------------------------------------------------------------|
+| `DeviceUnavailableError`      | `ConnectionError`     | the device could not be reached: refused, timed out, no route, or a connection broke before any print data |
+| `DeliveryUnconfirmedError`    | `ConnectionError`     | `print_raw`: the connection broke after the device took print data; not a `DeviceUnavailableError`         |
+| `DeviceResponseError`         | `ValueError`          | the device answered, but not in the form this firmware family uses; or it stored a different configuration |
+| `QueueRefusedError`           | `DeviceResponseError` | `print_lpd`: the device refused the receive-job command; nothing was sent                                  |
+| `AuthenticationRequiredError` | `PermissionError`     | the device wants a login and password the endpoint does not have (FTP 530)                                 |
+| `ConfigFormatError`           | `ValueError`          | `CONFIG` text or a value is not one the family uses; names the parameter                                   |
+| `ConfirmationRequiredError`   | `PermissionError`     | a destructive action without the device's name; nothing was done                                           |
+| `PortBusyError`               | `TimeoutError`        | `print_raw_verified`: the port stayed busy before the send; nothing was sent                               |
+| `JobNotDrainedError`          | `TimeoutError`        | `print_raw_verified`: the job was sent, but the port did not read idle in time                             |
+| `PrintSourceChangedError`     | `OSError`             | `print_lpd`: the file changed size while it was sent; part may be on paper                                 |
+| `SpoolError`                  | `OSError`             | `print_lpd`: data of unknown size could not be copied to a temporary file; nothing was sent                |
+| `HostPrivilegeError`          | `PermissionError`     | ARP trick: this host may not change its neighbour table                                                    |
+| `UnverifiedAddressError`      | `PermissionError`     | ARP trick: nothing shows the address to borrow is free                                                     |
+| `NeighborTableError`          | `OSError`             | ARP trick: the neighbour table could not be read or written for another reason                             |
+| `ConfigurationError`          | `Exception`           | the command line tool's own settings are missing or invalid; no `PrintServer` method raises it             |
 
 Reading methods (`info`, `status`, `read_config` and the rest) raise `DeviceUnavailableError`,
 `DeviceResponseError`, `AuthenticationRequiredError` and, for the configuration,

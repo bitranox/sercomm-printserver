@@ -104,7 +104,8 @@ confirmation, `AuthenticationRequiredError` for a login the device wants; 13:
 | 75   | `print raw --verify`: the port stayed busy before the send, nothing was sent (`PortBusyError`) |
 | 76   | device answered something this firmware family does not send, stored a value other than        |
 |      | the one sent (see "Changes and restarts"), or held back an LPD acknowledgement past            |
-|      | `--timeout` (a port without a printer)                                                         |
+|      | `--timeout` (a port without a printer); `refused the receive-job command` means the device     |
+|      | refused the LPD queue (`QueueRefusedError`) and nothing was sent                               |
 | 77   | refused: missing `--yes` / wrong `--confirm-name`, or the device wants a login (530) or        |
 |      | rejected the password (531)                                                                    |
 | 78   | configuration error (no `--host` and no `[device] host`, an unknown or invalid key in          |
@@ -113,8 +114,8 @@ confirmation, `AuthenticationRequiredError` for a login the device wants; 13:
 |      | with `--verify` the port was not read as idle (`JobNotDrainedError`); do not resend blindly    |
 
 Each of 69 and 76 carries one exception for all its causes (`DeviceUnavailableError`,
-`DeviceResponseError`); after a 76 from a write, read the parameter back to see what the device
-holds.
+`DeviceResponseError`, whose subclass `QueueRefusedError` marks the refused LPD queue); after a 76
+from a write, read the parameter back to see what the device holds.
 
 ## Ports, queues and printers
 

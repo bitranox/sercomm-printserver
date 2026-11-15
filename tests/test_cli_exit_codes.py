@@ -12,6 +12,7 @@ from sercomm_printserver.domain.errors import (
     DeliveryUnconfirmedError,
     DeviceUnavailableError,
     PrintSourceChangedError,
+    QueueRefusedError,
     SpoolError,
 )
 
@@ -117,3 +118,10 @@ def test_a_local_print_data_failure_has_its_own_exit_code(error: Exception, code
 )
 def test_exit_69_is_kept_for_a_job_nothing_of_which_was_sent(error: Exception, code: int) -> None:
     assert exit_code_for(error).value == code
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_lpd_queue_keeps_the_protocol_error_exit_code() -> None:
+    error = QueueRefusedError("192.0.2.52:515 refused the receive-job command: acknowledgement b'\\x01'")
+
+    assert exit_code_for(error).value == 76

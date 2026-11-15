@@ -6,6 +6,15 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Added
+
+- `QueueRefusedError` (exported from the package root), a subclass of `DeviceResponseError`:
+  `print_lpd` raises it when the device refuses the receive-job command that names the queue, the
+  first step of an LPD job, so a caller can tell "nothing was sent" from a refusal of a later step,
+  after which part of the job may be on paper. A caller that catches `DeviceResponseError` still
+  catches it, and `print lpd` still exits 76; its `--json` error envelope names `QueueRefusedError`
+  there instead of `DeviceResponseError`.
+
 ## [0.4.1] - 2026-11-12
 
 ### Fixed

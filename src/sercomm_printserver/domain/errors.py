@@ -42,6 +42,22 @@ class DeviceResponseError(ValueError):
     """
 
 
+class QueueRefusedError(DeviceResponseError):
+    """The print server refused the LPD receive-job command, so no print data was sent.
+
+    The device answers the first step of an LPD job, the receive-job command naming the queue,
+    with a non-zero acknowledgement. Nothing of the job has left this host at that point, so a
+    caller may read it as "not printed". It subclasses :class:`DeviceResponseError` so a caller
+    that catches that one still catches this; a refusal of a LATER step stays a plain
+    :class:`DeviceResponseError`, because data may then be on paper.
+
+    Example:
+        >>> error = QueueRefusedError("192.0.2.52:515 refused the receive-job command: acknowledgement b'\\x01'")
+        >>> isinstance(error, DeviceResponseError)
+        True
+    """
+
+
 class DeviceUnavailableError(ConnectionError):
     """The print server could not be reached: refused, timed out, or no route.
 
@@ -185,6 +201,7 @@ __all__ = [
     "NeighborTableError",
     "PortBusyError",
     "PrintSourceChangedError",
+    "QueueRefusedError",
     "SpoolError",
     "UnverifiedAddressError",
 ]

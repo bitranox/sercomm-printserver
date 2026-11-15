@@ -320,8 +320,10 @@ class PrintServer:
                 announced; the job was left unterminated, but part of it may be on paper.
             DeviceUnavailableError: The device could not be reached or did not answer the
                 receive-job command; no print data was sent.
-            DeviceResponseError: A step was refused, or the device broke off or stayed silent
-                after it had answered, so print data may have been sent.
+            QueueRefusedError: The device refused the receive-job command that names
+                ``queue``; no print data was sent. A subclass of ``DeviceResponseError``.
+            DeviceResponseError: A later step was refused, or the device broke off or stayed
+                silent after it had answered, so print data may have been sent.
             OSError: Reading the data failed (a file or stream error, raised as it is).
         """
         return self._ports.lpd.submit(self._endpoint, queue, job)

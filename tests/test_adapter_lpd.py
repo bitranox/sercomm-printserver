@@ -17,6 +17,7 @@ from sercomm_printserver.domain.errors import (
     DeviceResponseError,
     DeviceUnavailableError,
     PrintSourceChangedError,
+    QueueRefusedError,
     SpoolError,
 )
 from sercomm_printserver.domain.print_data import PrintData
@@ -164,6 +165,26 @@ def test_a_non_zero_acknowledgement_names_the_refused_step(step: int, name: str)
         with pytest.raises(DeviceResponseError, match=rf"refused the {name}: acknowledgement b'\\x01'"):
             _client().submit(_endpoint(server.port), "L1", _JOB)
         assert server.finished.wait(_WAIT)
+
+
+def test_a_refused_receive_job_command_is_a_queue_refusal_with_nothing_sent() -> None:
+    with FakeLpdServer(acks={0: b"\x01"}) as server:
+        with pytest.raises(QueueRefusedError, match="refused the receive-job command") as caught:
+            _client().submit(_endpoint(server.port), "L1", _JOB)
+        assert server.finished.wait(_WAIT)
+
+    assert isinstance(caught.value, DeviceResponseError)
+    assert bytes(server.received) == b"\x02L1\n"
+
+
+@pytest.mark.parametrize("step", [1, 2, 3, 4])
+def test_a_refusal_after_the_receive_job_command_is_not_a_queue_refusal(step: int) -> None:
+    with FakeLpdServer(acks={step: b"\x01"}) as server:
+        with pytest.raises(DeviceResponseError) as caught:
+            _client().submit(_endpoint(server.port), "L1", _JOB)
+        assert server.finished.wait(_WAIT)
+
+    assert not isinstance(caught.value, QueueRefusedError)
 
 
 def test_a_device_closing_before_any_answer_is_unavailable() -> None:

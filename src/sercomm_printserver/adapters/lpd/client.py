@@ -25,7 +25,13 @@ import socket
 import tempfile
 from typing import IO, TYPE_CHECKING, Final, NamedTuple
 
-from ...domain.errors import DeviceResponseError, DeviceUnavailableError, PrintSourceChangedError, SpoolError
+from ...domain.errors import (
+    DeviceResponseError,
+    DeviceUnavailableError,
+    PrintSourceChangedError,
+    QueueRefusedError,
+    SpoolError,
+)
 from ...domain.print_data import PrintData
 
 if TYPE_CHECKING:
@@ -136,23 +142,31 @@ class _LpdConnection:
         except OSError as exc:
             raise self._lost(step, f"{exc} while sending") from exc
 
-    def expect_ack(self, step: str, *, stall_hint: str = "") -> None:
+    def expect_ack(
+        self,
+        step: str,
+        *,
+        stall_hint: str = "",
+        refusal: type[DeviceResponseError] = DeviceResponseError,
+    ) -> None:
         """Read the one-byte acknowledgement of ``step``.
 
         ``stall_hint`` is appended to the message when the device stays silent with the
         connection open; it names what the device is known to wait for at that step.
+        ``refusal`` is the error a non-zero acknowledgement raises: the receive-job command
+        passes :class:`QueueRefusedError`, since nothing was sent before it.
 
         Raises:
             DeviceUnavailableError: No byte arrived before the device had answered anything.
-            DeviceResponseError: The acknowledgement is not 0x00, or the connection ended after
-                an earlier answer.
+            DeviceResponseError: The acknowledgement is not 0x00 (as ``refusal``), or the
+                connection ended after an earlier answer.
         """
         reply = self._recv(1, step=step, stall_hint=stall_hint)
         if not reply:
             raise self._lost(step, "connection closed")
         self._answered = True
         if reply != _ACK_OK:
-            raise DeviceResponseError(f"{self._address} refused the {step}: acknowledgement {reply!r}")
+            raise refusal(f"{self._address} refused the {step}: acknowledgement {reply!r}")
 
     def read_to_end(self, *, step: str) -> bytes:
         """Read until the device closes the connection, at most ``_STATE_CAP`` bytes.
@@ -386,7 +400,7 @@ class LpdClient:
             control = PrintData.of(_control_file(job, data_name))
             with _LpdConnection(endpoint) as conn:
                 conn.send(b"\x02" + queue_name + b"\n", step="receive-job command")
-                conn.expect_ack("receive-job command")
+                conn.expect_ack("receive-job command", refusal=QueueRefusedError)
                 sent = _send_file(conn, kind=_DATA_FILE, name=data_name, content=data)
                 _send_file(conn, kind=_CONTROL_FILE, name=f"cfA{tag}{job.client_host}", content=control)
         return sent
