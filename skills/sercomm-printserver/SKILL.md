@@ -67,11 +67,14 @@ above that show `--confirm-name` need both, the name being the device's `server_
 
 Every device command, `arp` and `discover` included, takes `--json` (indented) or `--json-bare`
 (one line) and then writes valid JSON on stdout, success (`ok`, `command`, `data`, `skipped`) or
-failure (`ok`, `command`, `error`, `message`). The one exception is a usage error (an unknown
-option, an out-of-range value, `print raw 4`): the command-line parser rejects it first, with exit
-2, a usage message on stderr and nothing on stdout. `skipped` names what a partial answer left
-out: `discover` without `--network` lists the local networks beyond its 4096-address budget there
-(a named `--network` larger than that is refused, exit 22).
+failure (`ok`, `command`, `error`, `message`). Both are options of the command itself, so they go
+after the full command name (`device-config get L1_PROUT --host H --json-bare`); placed before it
+(`sercomm-printserver --json status`, `device-config --json show`) they are refused as an unknown
+option. The one exception is a usage error (an unknown option, an out-of-range value,
+`print raw 4`): the command-line parser rejects it first, with exit 2, a usage message on stderr
+and nothing on stdout. `skipped` names what a partial answer left out: `discover` without
+`--network` lists the local networks beyond its 4096-address budget there (a named `--network`
+larger than that is refused, exit 22).
 
 ```json
 {"ok":true,"command":"firmware","data":{"host":"192.0.2.52","firmware":"6022"},"skipped":[]}
@@ -127,7 +130,11 @@ or `L1`..`L8`), so on any model other than the PS301 read the layout from the de
 queue feeds is in the device's CONFIG - on the measured PS301 (FW 6022) `L1`/`L4`/`L7` -> P1,
 `L2`/`L5`/`L8` -> P2, `L3`/`L6` -> SP and the queue `lp` -> P1, while a second PS301 (FW 6A10)
 routed `L4`..`L8` to P1. Read it instead of assuming:
-`device-config get L3_PROUT` answers `SP` (keys `L1_PROUT`..`L8_PROUT`).
+`device-config get L3_PROUT` answers `SP` (keys `L1_PROUT`..`L8_PROUT`; with `--json-bare` the
+value is `data.value`). One call reads every route: `device-config show --host H --json-bare`
+holds the parsed CONFIG in `data.config`, and `data.config.logical_printers` is a list with one
+object per logical printer the CONFIG holds (up to `L8`; the queue `lp` is not one): `number`
+(1 for `L1`) and `port` (`P1`, `P2`, `P3` or `SP`).
 
 RAW ports belong to the logical printers `L1`..`L3` only: `print raw 1|2|3` uses port
 `raw_port_base` + 0/1/2 (`[device] raw_port_base`, default 9100), and the data goes wherever

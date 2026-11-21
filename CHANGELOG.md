@@ -6,6 +6,15 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-21
+
+### Changed
+
+- Skill: names `device-config show --json-bare` as the one call that reads every route
+  (`data.config.logical_printers`, one object per logical printer with `number` and `port`), names
+  `data.value` for `device-config get`, and states that `--json`/`--json-bare` go after the full
+  command name; before it they are refused as an unknown option (exit 2).
+
 ## [0.4.3] - 2026-11-18
 
 ### Changed
