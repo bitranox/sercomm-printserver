@@ -48,8 +48,10 @@ Aus den CONFIG-Tabellen der Firmware-Images und den Unix-Handbüchern:
 - Anzahl logischer Drucker: siehe oben, aus CONFIG ableiten.
 - RAW/DSI-Ports: Alle Handbücher und Perle-KB q163 nennen fest 4010/4020/4030 (nur L1..L3);
   in den untersuchten Firmware-Images taucht 9100 nicht auf. Dieses Gerät (FW 6022) hat
-  beide Reihen offen, 9100-9102 und 4010/4020/4030 (gemessen 2026-10-24). Bei anderer
-  Firmware kann eine Reihe fehlen.
+  beide Reihen offen, 9100-9102 und 4010/4020/4030 (gemessen 2026-10-24). Ein PS301 mit
+  FW 6A10 hat nur 4010/4020/4030: 9100-9102 lehnten jeden Connect ab, über 8 min nach einem
+  Neustart, während 4010-4030 und 515 annahmen (gemessen 2026-11-27). CONFIG hat keinen
+  Schlüssel, der eine der beiden Reihen schaltet; welche Reihe offen ist, legt die Firmware fest.
 - Schlüssel nur bei Mehrport-Modellen: LPT2MODE/LPT3MODE, NR_NAME2.., AP_TYPE2..,
   AP_PCOMM2.. (beim EPSX3 trägt Port 3 die Endung 4).
 - Schlüssel nur bei manchen Firmware-Ständen:
