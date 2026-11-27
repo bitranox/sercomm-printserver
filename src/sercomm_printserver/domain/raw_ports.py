@@ -22,7 +22,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from types import MappingProxyType
 from typing import Final
 
@@ -36,8 +36,11 @@ DSI_RAW_PORTS: Final = (4010, 4020, 4030)
 _LAST_PORT: Final = 65535
 
 
-class RawPortRow(StrEnum):
-    """Which row of RAW ports a job is sent to."""
+class RawPortRow(str, Enum):
+    """Which row of RAW ports a job is sent to.
+
+    ``str, Enum`` rather than ``StrEnum``, which Python 3.10 lacks; read ``.value`` for the text.
+    """
 
     #: ``raw_port_base`` + 0/1/2 (9100-9102 by default).
     BASE = "base"
