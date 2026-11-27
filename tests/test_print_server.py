@@ -26,6 +26,7 @@ from sercomm_printserver.domain.errors import (
 from sercomm_printserver.domain.port_health import PortHealth, PortVerdict
 from sercomm_printserver.domain.port_status import PortState
 from sercomm_printserver.domain.print_data import PrintData
+from sercomm_printserver.domain.raw_ports import RawPortRow
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -883,3 +884,82 @@ def test_a_verified_print_names_a_wedge_left_after_its_own_send() -> None:
 
     with pytest.raises(JobNotDrainedError, match=r"the data was sent, but SP is wedged"):
         _server(device, clock=_ManualClock()).print_raw_verified(3, b"x", timeout=1.0)
+
+
+# ---------------------------------------------------------------- RAW port rows
+
+
+def test_raw_printing_to_the_dsi_row_sends_to_4010_4020_or_4030() -> None:
+    device = _device()
+
+    _server(device).print_raw(3, b"x", row=RawPortRow.DSI)
+
+    assert device.raw_sends == [(4030, b"x")]
+
+
+def test_the_dsi_row_keeps_the_serial_drain_of_the_logical_printer() -> None:
+    # The DSI port is the same logical printer as the BASE one, so a job for the serial port waits the same.
+    base, dsi = _device(), _device()
+
+    _server(base).print_raw(3, b"x" * 960)
+    _server(dsi).print_raw(3, b"x" * 960, row=RawPortRow.DSI)
+
+    assert base.raw_drains == dsi.raw_drains
+    assert dsi.raw_drains[0] is not None
+
+
+@pytest.mark.parametrize("printer", [0, 4])
+def test_the_dsi_row_has_no_port_past_the_printers_1_to_3(printer: int) -> None:
+    device = _device()
+
+    with pytest.raises(ValueError, match="no RAW port"):
+        _server(device).print_raw(printer, b"x", row=RawPortRow.DSI)
+    assert device.raw_sends == []
+
+
+def test_a_verified_raw_print_to_the_dsi_row_judges_a_stuck_port_on_that_row() -> None:
+    device = _device()
+    device.monitor_text = _monitor(sp="Printing")
+    device.raw_refusing = {9102}
+
+    with pytest.raises(PortBusyError):
+        _server(device).print_raw_verified(3, b"x", timeout=1.0, row=RawPortRow.DSI)
+    assert device.raw_probes == [4030]
+    assert device.raw_sends == []
+
+
+def _firmware(device: FakeDevice, version: str) -> FakeDevice:
+    device.firmware = version
+    device.psinf = device.psinf.replace("Firmware Version: 6022", f"Firmware Version: {version}")
+    return device
+
+
+def test_a_check_on_firmware_6a10_probes_the_dsi_row_it_opens() -> None:
+    device = _firmware(_device(), "6A10")
+    device.monitor_text = _monitor(sp="Printing")
+    device.raw_refusing = {9100, 9101, 9102}
+
+    result = _server(device).check()
+
+    assert device.raw_probes == [4030]
+    assert _verdicts(result.ports)["SP"] is PortVerdict.WEDGED
+
+
+def test_a_check_on_firmware_6a10_with_a_garbled_syst_reads_the_firmware_from_psinf() -> None:
+    device = _firmware(_device(), "6A10")
+    device.firmware = "Ä^ð&"
+    device.monitor_text = _monitor(sp="Printing")
+
+    _server(device).check()
+
+    assert device.raw_probes == [4030]
+
+
+@pytest.mark.parametrize("version", ["6022", "6034"])
+def test_a_check_on_a_firmware_with_the_base_row_or_unmeasured_probes_the_base_row(version: str) -> None:
+    device = _firmware(_device(), version)
+    device.monitor_text = _monitor(sp="Printing")
+
+    _server(device).check()
+
+    assert device.raw_probes == [9102]

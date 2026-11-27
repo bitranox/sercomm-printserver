@@ -6,6 +6,24 @@ the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-27
+
+### Added
+
+- The second row of RAW ports, the vendor's DSI sockets 4010/4020/4030 for `L1`..`L3`:
+  `print raw N --row dsi` on the command line, `row=RawPortRow.DSI` on `print_raw` and
+  `print_raw_verified`. Firmware 6A10 opens only this row (its 9100-9102 refuse every connect);
+  firmware 6022 opens both. The default stays the base row.
+- `RawPortRow`, `RawPrinter`, `DSI_RAW_PORTS`, `raw_port_of`, `raw_printer_at` and
+  `raw_port_rows` (which rows a firmware is measured to open), exported from the package root.
+
+### Changed
+
+- `check` probes the DSI row when the device's firmware opens only that row (6A10), so a wedge
+  check there no longer reads every refused base-row port as held. A verified send judges the
+  port of the row it sent on.
+- Skill: the RAW paragraph names both rows, which firmware opens which, and `--row dsi`.
+
 ## [0.4.4] - 2026-11-21
 
 ### Changed

@@ -222,10 +222,15 @@ without logging in. Keep them on a network you trust.
 sercomm-printserver print lpd L1 page.prn               # LPD queue L1..L8
 cat page.prn | sercomm-printserver print lpd L2 -
 sercomm-printserver print raw 1 page.prn                # RAW port of logical printer 1
+sercomm-printserver print raw 3 page.prn --row dsi      # the same printer on port 4030
 ```
 
 Only L1..L3 have a RAW port, and RAW data goes wherever that logical printer is routed, just like
-an LPD job. Data that no printer takes stays queued and keeps the port busy until a restart
+an LPD job. Each of them has a RAW port in two rows, fixed by the firmware (no CONFIG key sets
+them): `--row base` (the default) sends to `raw_port_base` + 0/1/2, 9100-9102 by default, and
+`--row dsi` to the vendor's direct socket ports 4010/4020/4030. Firmware 6022 opens both rows,
+firmware 6A10 only the DSI row: on 6A10, 9100-9102 refuse every connect (measured on a PS301).
+`raw_port_rows(firmware)` in the Python API returns the rows of a measured firmware. Data that no printer takes stays queued and keeps the port busy until a restart
 (`reset --yes`), so never send a test job, LPD or RAW, to a port without a printer. An LPD job
 there fails after `--timeout` with exit 76, because the device holds back its acknowledgement.
 `print lpd` names the job `job` unless `--job-name` says otherwise. An empty job is refused
@@ -265,7 +270,7 @@ client connected: a RAW connection that lost its data (another program opened on
 job was sent while the device still passed the previous one on). Every later job to it is
 accepted and lost. `status` cannot tell this from a client that holds the port, since an open
 connection reads the same. `check` can: it makes a bare connect, with no data, to each RAW port
-routed there. A wedged port accepts it, a held one refuses it. A port counts as wedged only if
+routed there, in the base row unless the firmware opens only the DSI row (6A10). A wedged port accepts it, a held one refuses it. A port counts as wedged only if
 every such connect got in, so a live job is never reported as one. A port that reads like a wedge
 but has no RAW port routed to it (only L1..L3 have one) cannot be probed and is reported
 `unprobed`; it does not count as wedged.

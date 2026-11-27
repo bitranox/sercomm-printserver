@@ -136,12 +136,16 @@ holds the parsed CONFIG in `data.config`, and `data.config.logical_printers` is 
 object per logical printer the CONFIG holds (up to `L8`; the queue `lp` is not one): `number`
 (1 for `L1`) and `port` (`P1`, `P2`, `P3` or `SP`).
 
-RAW ports belong to the logical printers `L1`..`L3` only: `print raw 1|2|3` uses port
-`raw_port_base` + 0/1/2 (`[device] raw_port_base`, default 9100), and the data goes wherever
-that printer is routed, exactly like an LPD job (measured on a PS301, firmware 6022: with
-`L1_PROUT=P2`, port 9100 fed P2). That firmware also opens the vendor's DSI sockets
-4010/4020/4030 for the same three printers; they step by 10, so `raw_port_base` cannot express
-them. `print raw 4` and above is refused (exit 2). Prefer `print lpd`, which reaches all eight.
+RAW ports belong to the logical printers `L1`..`L3` only, and the data goes wherever that printer
+is routed, exactly like an LPD job (measured on a PS301, firmware 6022: with `L1_PROUT=P2`, port
+9100 fed P2). Each printer has a RAW port in two rows, fixed by the firmware (no CONFIG key sets
+them): `print raw 1|2|3` uses the base row, `raw_port_base` + 0/1/2 (`[device] raw_port_base`,
+default 9100), and `print raw 1|2|3 --row dsi` the vendor's DSI sockets 4010/4020/4030 (printer
+1, 2, 3 in that order). Firmware 6022 opens both rows; firmware 6A10 only the DSI row (measured on a
+PS301: 9100-9102 refused every connect for over 8 min after a restart, 4010-4030 accepted), so on
+6A10 print with `--row dsi` or `print lpd`. `firmware --host H` prints the firmware. `check` probes
+the base row; on 6A10 it probes the DSI row instead. `print raw 4` and above is refused (exit 2). Prefer
+`print lpd`, which reaches all eight logical printers.
 
 Both `print` commands stream SOURCE in pieces, so a large job is never held in memory. LPD sends
 a job's size before its data, so `print lpd` copies data of unknown size (a pipe on `-`) to a

@@ -34,6 +34,7 @@ from ..domain.link import link_drain_for
 from ..domain.port_health import PortHealth, PortVerdict, is_wedge_candidate, probed_verdict, unprobed_verdict
 from ..domain.port_status import PortState, PortStatus, parse_monitor
 from ..domain.print_data import PrintData
+from ..domain.raw_ports import RAW_PRINTERS, RawPortRow, raw_port_of, raw_port_rows
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,10 +50,6 @@ _T = TypeVar("_T")
 
 #: The firmware stores at most 19 bytes of password (vendor manual: ``put PASSWORD``).
 _PASSWORD_MAX: Final = 19
-_RAW_LAST_PORT: Final = 65535
-#: Only L1..L3 have a RAW port (measured on a PS301, firmware 6022: 9103 is closed); the vendor
-#: manuals give the same three, as DSI sockets 4010/4020/4030.
-_RAW_LAST_PRINTER: Final = 3
 #: Parameters the device reads back masked with asterisks, so a read-back cannot verify them.
 #: Re-uploading the mask is safe: the device keeps the stored value when it receives it.
 _READ_BACK_MASKED: Final = frozenset({cat.mail_line(cat.MailField.PASSWORD)})
@@ -328,13 +325,15 @@ class PrintServer:
         """
         return self._ports.lpd.submit(self._endpoint, queue, job)
 
-    def print_raw(self, logical_printer: int, data: PrintData | bytes) -> int:
-        """Send ``data`` to the RAW port of logical printer ``logical_printer`` (1-3).
+    def print_raw(self, logical_printer: int, data: PrintData | bytes, *, row: RawPortRow = RawPortRow.BASE) -> int:
+        """Send ``data`` to the RAW port of logical printer ``logical_printer`` (1-3) in ``row``.
 
         The RAW port belongs to the logical printer, not to a physical port: the data goes to
         whichever physical port the printer is routed to (``Ln_PROUT``), as an LPD job would.
         A job stays queued as "Printing / Direct Socket" while no printer takes it, so empty data
-        is refused before anything is sent.
+        is refused before anything is sent. ``row`` picks ``raw_port_base`` + 0/1/2 (``BASE``) or
+        4010/4020/4030 (``DSI``); which rows a device opens depends on its firmware
+        (:func:`~sercomm_printserver.domain.raw_ports.raw_port_rows`): firmware 6A10 has only DSI.
 
         The configuration is read first: a printer on the serial port gets its data at the
         port's baud rate, and a RAW connection opened before the device has passed a job on
@@ -364,11 +363,16 @@ class PrintServer:
             OSError: Reading the data failed (a file or stream error, raised as it is).
         """
         job = self._raw_job(data)
-        port = self._raw_port(logical_printer)
+        port = self._raw_port(logical_printer, row)
         return self._send_raw(self.read_config(), logical_printer, port, job)
 
     def print_raw_verified(
-        self, logical_printer: int, data: PrintData | bytes, *, timeout: float = DEFAULT_VERIFY_TIMEOUT
+        self,
+        logical_printer: int,
+        data: PrintData | bytes,
+        *,
+        timeout: float = DEFAULT_VERIFY_TIMEOUT,
+        row: RawPortRow = RawPortRow.BASE,
     ) -> PortStatus:
         """Wait until the routed port is idle, send ``data``, and wait until it is idle again.
 
@@ -383,6 +387,7 @@ class PrintServer:
             data: The print data, sent piece by piece (plain bytes are wrapped); the bytes sent
                 are counted in ``PrintData.bytes_read`` for a caller that needs a pipe's size.
             timeout: Seconds each of the two waits may take, so the worst case is twice this.
+            row: The row of RAW ports to send to, as for :meth:`print_raw`.
 
         Returns:
             The status of the routed port once it is idle after the send.
@@ -398,7 +403,7 @@ class PrintServer:
                 send failed before the socket took a byte; never after that.
         """
         job = self._raw_job(data)
-        port = self._raw_port(logical_printer)
+        port = self._raw_port(logical_printer, row)
         config = self.read_config()
         routed = config.logical_printers[logical_printer - 1].port
         host = self._endpoint.host
@@ -408,7 +413,7 @@ class PrintServer:
                 f"{host}: nothing was sent, {routed.value} could not be read for {timeout:g} s: {before}"
             ) from before
         if before.state is not PortState.IDLE:
-            busy = self._judge(before, config)
+            busy = self._judge(before, config, row)
             raise PortBusyError(
                 f"{host}: nothing was sent, {_busy_reason(busy, f'after {timeout:g} s', stuck='a stuck port')}"
             )
@@ -425,7 +430,7 @@ class PrintServer:
             ) from after
         if after.state is not PortState.IDLE:
             try:
-                busy = self._judge(after, config)
+                busy = self._judge(after, config, row)
             except DeviceUnavailableError:
                 busy = PortHealth(status=after, verdict=PortVerdict.PRINTING)
             raise JobNotDrainedError(
@@ -444,18 +449,33 @@ class PrintServer:
         if not any(is_wedge_candidate(status) for status in statuses):
             return tuple(PortHealth(status=status, verdict=unprobed_verdict(status)) for status in statuses)
         config = self.read_config()
-        return tuple(self._judge(status, config) for status in statuses)
+        row = self._probe_row()
+        return tuple(self._judge(status, config, row) for status in statuses)
 
-    def _judge(self, status: PortStatus, config: DeviceConfig) -> PortHealth:
+    def _probe_row(self) -> RawPortRow:
+        """The row a check probes: BASE where the firmware opens it or is unmeasured, else DSI.
+
+        A row the device does not open refuses every connect, which would read as a held port.
+        BASE stays first because the wedge behaviour was measured there (FW 6022); a DSI port's
+        behaviour on a wedge is unmeasured.
+        """
+        rows = raw_port_rows(self.firmware_version())
+        return RawPortRow.BASE if rows is None or RawPortRow.BASE in rows else RawPortRow.DSI
+
+    def _judge(self, status: PortStatus, config: DeviceConfig, row: RawPortRow) -> PortHealth:
         if not is_wedge_candidate(status):
             return PortHealth(status=status, verdict=unprobed_verdict(status))
-        ports = self._raw_ports_routed_to(status.port, config)
+        ports = self._raw_ports_routed_to(status.port, config, row)
         accepted = tuple(self._ports.raw.accepts_connection(self._endpoint, port) for port in ports)
         return PortHealth(status=status, verdict=probed_verdict(accepted=accepted), probed=ports)
 
-    def _raw_ports_routed_to(self, port: PortId, config: DeviceConfig) -> tuple[int, ...]:
-        printers = config.logical_printers[:_RAW_LAST_PRINTER]
-        return tuple(self._raw_port_base + printer.number - 1 for printer in printers if printer.port is port)
+    def _raw_ports_routed_to(self, port: PortId, config: DeviceConfig, row: RawPortRow) -> tuple[int, ...]:
+        printers = config.logical_printers[: len(RAW_PRINTERS)]
+        return tuple(
+            raw_port_of(printer.number, row, raw_port_base=self._raw_port_base)
+            for printer in printers
+            if printer.port is port
+        )
 
     @staticmethod
     def _raw_job(data: PrintData | bytes) -> PrintData:
@@ -470,13 +490,8 @@ class PrintServer:
             raise ValueError("refusing to open a RAW print port without data to send")
         return job
 
-    def _raw_port(self, logical_printer: int) -> int:
-        port = self._raw_port_base + logical_printer - 1
-        if logical_printer < 1 or port > _RAW_LAST_PORT:
-            raise ValueError(f"logical printer {logical_printer} has no RAW port")
-        if logical_printer > _RAW_LAST_PRINTER:
-            raise ValueError(f"logical printer {logical_printer} has no RAW port: only L1..L3 have one")
-        return port
+    def _raw_port(self, logical_printer: int, row: RawPortRow) -> int:
+        return raw_port_of(logical_printer, row, raw_port_base=self._raw_port_base)
 
     def _routed_status(self, logical_printer: int, routed: PortId) -> PortStatus:
         for status in self.status():

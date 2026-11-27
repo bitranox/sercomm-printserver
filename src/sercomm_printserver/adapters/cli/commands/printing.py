@@ -17,6 +17,7 @@ from sercomm_printserver.application.print_server import DEFAULT_VERIFY_TIMEOUT
 from sercomm_printserver.domain.config_types import PortId
 from sercomm_printserver.domain.endpoint import PrintJob
 from sercomm_printserver.domain.print_data import PrintData
+from sercomm_printserver.domain.raw_ports import RawPortRow
 
 from ..constants import CLICK_CONTEXT_SETTINGS, CommandName
 from ..typed_click import argument, option
@@ -138,6 +139,15 @@ def cli_print_lpd(
     default=None,
     help=f"Seconds each --verify wait may take, before and after the send (default {DEFAULT_VERIFY_TIMEOUT:g}).",
 )
+@option(
+    "--row",
+    # The values, not the enum: click matches an Enum's NAME, so "dsi" would be refused.
+    type=click.Choice([row.value for row in RawPortRow]),
+    default=RawPortRow.BASE.value,
+    show_default=True,
+    help="The row of RAW ports: base is raw_port_base + 0/1/2 (9100-9102), dsi is 4010/4020/4030. "
+    "Firmware 6022 opens both, 6A10 only dsi.",
+)
 @device_options
 @click.pass_context
 def cli_print_raw(
@@ -147,6 +157,7 @@ def cli_print_raw(
     *,
     verify: bool,
     verify_timeout: float | None,
+    row: str,
     host: str | None,
     timeout: float | None,
     as_json: bool,
@@ -156,15 +167,18 @@ def cli_print_raw(
     if verify_timeout is not None and not verify:
         # Taking the value and not watching would read as a verified print that was never verified.
         raise click.UsageError("--verify-timeout needs --verify")
+    port_row = RawPortRow(row)
 
     def work(server: PrintServer) -> PrintReport:
         # Streamed, never read whole: a pipe's only size is the count of bytes that went out.
         data = PrintData.from_stream(source)
         host = server.endpoint.host
         if not verify:
-            size = server.print_raw(printer, data)
+            size = server.print_raw(printer, data, row=port_row)
             return PrintReport(host=host, transport=PrintTransport.RAW, queue=None, printer=printer, size=size)
-        status = server.print_raw_verified(printer, data, timeout=verify_timeout or DEFAULT_VERIFY_TIMEOUT)
+        status = server.print_raw_verified(
+            printer, data, timeout=verify_timeout or DEFAULT_VERIFY_TIMEOUT, row=port_row
+        )
         return VerifiedPrintReport(
             host=host,
             transport=PrintTransport.RAW,

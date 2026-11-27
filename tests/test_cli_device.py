@@ -337,6 +337,41 @@ def test_print_raw_reads_stdin_and_picks_the_printers_port(
     assert device.raw_sends == [(9102, b"\x1bE")]
 
 
+@pytest.mark.parametrize(("row", "port"), [("dsi", 4030), ("base", 9102)])
+def test_print_raw_row_picks_the_row_of_ports(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice, row: str, port: int
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "3", "-", "--row", row, *_HOST], obj=services, input=b"\x1bE"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert device.raw_sends == [(port, b"\x1bE")]
+
+
+def test_print_raw_verify_sends_to_the_chosen_row(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    device.monitor_text = _IDLE_PORTS
+    result = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "2", "-", "--row", "dsi", "--verify", *_HOST], obj=services, input=b"x"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert device.raw_sends == [(4020, b"x")]
+
+
+def test_print_raw_refuses_an_unknown_row_before_contacting_the_device(
+    cli_runner: CliRunner, services: Callable[[], AppServices], device: FakeDevice
+) -> None:
+    result = cli_runner.invoke(
+        cli_root.cli, ["print", "raw", "1", "-", "--row", "DSI4010", *_HOST], obj=services, input=b"x"
+    )
+
+    assert result.exit_code == 2
+    assert device.raw_sends == []
+
+
 class _PieceOnlyStdin(io.BytesIO):
     """Standard input that refuses a read of everything at once, as one too big for memory would."""
 

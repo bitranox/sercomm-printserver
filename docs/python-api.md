@@ -71,8 +71,20 @@ print(server.info().firmware_version)
 The device's FTP login is its name (`BOX_NAME`, or the default name `SCxxxxxx`). It serves `CONFIG`
 and `PSINF` without a login, so most reads work with the defaults.
 
-`raw_port_base` is the RAW (direct socket) port of logical printer `L1`; `L2` and `L3` use the next
-two ports. Only `L1` to `L3` have a RAW port.
+`raw_port_base` is the RAW port of logical printer `L1` in the BASE row; `L2` and `L3` use the next
+two ports. Only `L1` to `L3` have a RAW port. The firmware also fixes a second row, the vendor's
+direct socket ports 4010/4020/4030 (`RawPortRow.DSI`), which `raw_port_base` does not move. Firmware
+6022 opens both rows, firmware 6A10 only the DSI row; any other firmware is unmeasured:
+
+```python
+from sercomm_printserver import RawPortRow, raw_port_of, raw_port_rows, raw_printer_at
+
+assert raw_port_rows("6A10") == frozenset({RawPortRow.DSI})
+assert raw_port_rows("6034") is None  # unmeasured: rows unknown
+assert raw_port_of(3, RawPortRow.DSI, raw_port_base=9100) == 4030
+found = raw_printer_at(4020, raw_port_base=9100)  # which printer a port belongs to
+assert (found.logical_printer, found.row) == (2, RawPortRow.DSI)
+```
 
 `timeout` bounds each connect, each send and each wait for a reply. It does not bound a whole
 operation: a restart wait has its own limit of 120 s, and a verified print takes its own `timeout`
@@ -221,7 +233,10 @@ A RAW connection that lost its data leaves its port reading `Printing` / `Direct
 bytes serviced until the device restarts. An open connection, your own included, reads exactly the
 same. `check()` tells them apart: for a port that reads that way it reads the configuration and makes
 a bare connect, with no data, to every RAW port (`L1` to `L3`) routed there. A port a client holds
-refuses the connect; a wedged one accepts it.
+refuses the connect; a wedged one accepts it. It probes the BASE row unless the firmware opens only
+the DSI row (6A10, read with `firmware_version()`), since a row the device does not open refuses
+every connect and would read as held; a DSI port's behaviour on a wedge is unmeasured.
+`print_raw_verified` judges a busy port on the row it sends to.
 
 `check()` returns a `CheckResult` (from `sercomm_printserver.application.print_server`):
 
@@ -445,14 +460,15 @@ carried.
 
 ### The three ways to print
 
-| Method                                                       | Returns                   | Sends to                                                            |
-|--------------------------------------------------------------|---------------------------|---------------------------------------------------------------------|
-| `print_lpd(queue, job)`                                      | `int`, bytes of data sent | the LPD queue `queue`, `L1` to `L8`                                 |
-| `print_raw(logical_printer, data)`                           | `int`, bytes sent         | the RAW port of logical printer 1 to 3                              |
-| `print_raw_verified(logical_printer, data, *, timeout=30.0)` | `PortStatus`              | the same RAW port, waiting for the port to be idle before and after |
+| Method                                                                 | Returns                   | Sends to                                                            |
+|------------------------------------------------------------------------|---------------------------|---------------------------------------------------------------------|
+| `print_lpd(queue, job)`                                                | `int`, bytes of data sent | the LPD queue `queue`, `L1` to `L8`                                 |
+| `print_raw(logical_printer, data, *, row=BASE)`                        | `int`, bytes sent         | the RAW port of logical printer 1 to 3 in `row`                     |
+| `print_raw_verified(logical_printer, data, *, timeout=30.0, row=BASE)` | `PortStatus`              | the same RAW port, waiting for the port to be idle before and after |
 
 A RAW port belongs to a logical printer, not to a physical port: the data goes to whichever port the
-printer is routed to (`Ln_PROUT`), as an LPD job would.
+printer is routed to (`Ln_PROUT`), as an LPD job would. `row=RawPortRow.DSI` sends to 4010/4020/4030
+instead of `raw_port_base` + 0/1/2; on firmware 6A10 it is the only row that answers.
 
 - `print_lpd` sends the data file before the control file. Data of unknown size (a pipe) is copied
   to a temporary file first, because LPD announces the size ahead of the data; `TMPDIR` chooses the

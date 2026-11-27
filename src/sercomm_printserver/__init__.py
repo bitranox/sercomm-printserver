@@ -52,6 +52,7 @@ from .domain.errors import (
 from .domain.neighbor import AddressHolder, LookupMethod
 from .domain.port_status import PortState, PortStatus, PortType, PrinterStatus
 from .domain.print_data import PrintData
+from .domain.raw_ports import DSI_RAW_PORTS, RawPortRow, RawPrinter, raw_port_of, raw_port_rows, raw_printer_at
 
 
 def discover_print_servers(*, networks: list[str] | None = None, timeout: float = 3.0) -> DiscoveryReport:
@@ -79,6 +80,7 @@ def _network(text: str) -> IPv4Network:
 
 
 __all__ = [
+    "DSI_RAW_PORTS",
     "AddressHolder",
     "AuthenticationRequiredError",
     "ConfigChange",
@@ -111,6 +113,8 @@ __all__ = [
     "PrintSourceChangedError",
     "PrinterStatus",
     "QueueRefusedError",
+    "RawPortRow",
+    "RawPrinter",
     "SpoolError",
     "UnverifiedAddressError",
     "arp_trick",
@@ -120,6 +124,9 @@ __all__ = [
     "open_print_server",
     "parse_config",
     "print_info",
+    "raw_port_of",
+    "raw_port_rows",
+    "raw_printer_at",
     "render_config",
     "with_value",
 ]

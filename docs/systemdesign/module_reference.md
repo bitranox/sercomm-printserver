@@ -68,6 +68,7 @@ lib_layered_config, pydantic, orjson, ipscout. Python >= 3.10.
 | `device_info.py`      | `DeviceInfo` from PSINF and the FTP `SYST` reply; MAC helpers                                          |
 | `endpoint.py`         | `DeviceEndpoint` (where and how to reach one device), `PrintJob`, `Port`                               |
 | `print_data.py`       | `PrintData`, `Piece`, `PIECE_SIZE`: a job's bytes from memory, a path or a stream                      |
+| `raw_ports.py`        | `RawPortRow`, `RawPrinter`, `raw_port_of`, `raw_printer_at`, `raw_port_rows`: the two RAW port rows    |
 | `port_status.py`      | `PortStatus`, `Occupant`, `PortState`, `PortType`, `PrinterStatus`, `parse_monitor`                    |
 | `port_health.py`      | `PortVerdict`, `PortHealth`, `is_wedge_candidate`, `probed_verdict`, `unprobed_verdict`: a wedged port |
 | `link.py`             | `LinkDrain`, `link_drain_for`: how long a job takes to cross the serial link                           |
